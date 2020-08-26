@@ -17,7 +17,7 @@ All the `Python` library prerequistes can be found and installed via `requiremen
 ### Installation & Usage:
 * Clone the repository from Github by either:
   * Using command line:
-  `git clone https://github.com/acse-2019/irp-acse-efb119.git`
+  `git clone https://github.com/EllyessB/WGAN-Regression.git`
   * Downloading the repository as a .zip
 * Installing all the requirements by using command line:
  `pip install -r requirement.txt`
