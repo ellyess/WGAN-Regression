@@ -17,6 +17,7 @@ def train(X_train, y_train, X_test, n_features):
 
     ypred_gp_test_full, cov_test_full = gpr.predict(X_test)
 
+    # randomly sampling from the GPR posterior
     ypred_GPR = np.random.normal(ypred_gp_test_full[0], np.sqrt(cov_test_full[0]))
     for i in range(1, len(X_test)):
         ypred_GPR = np.vstack([ypred_GPR,

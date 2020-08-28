@@ -47,10 +47,10 @@ def get_multimodal(n_instance):
 
 def gen_3d(n_instance):
     noise = 0.2
+
     x = np.linspace(start=-4, stop=4, num=n_instance//10).reshape(-1, 1)
     x2 = np.linspace(start=-4, stop=4, num=n_instance//10).reshape(-1, 1)
     x, x2 = np.meshgrid(x, x2) + noise * np.random.randn(*x.shape) + noise * np.random.randn(*x2.shape)
-    #z = np.sin(x + 2*y) + noise * np.random.randn(*x.shape)
     y = np.sqrt(x**2 + x2**2)
 
     x = x.reshape(-1, 1)
@@ -109,7 +109,7 @@ def gen_heteroscedastic(n_instance):
 
 def get_dataset(n_instance=1000, scenario="sinus", seed=1):
     """
-    Create regression data: y = x(1 + f(z)) + g(z)
+    Generates the desired dataset.
     """
 
     z_train = 0

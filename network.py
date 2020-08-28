@@ -14,7 +14,6 @@ def build_generator(latent_space, n_var):
     model.add(LeakyReLU())
     model.add(Dense(5*1*16, use_bias=False))
     model.add(Dense(20*n_var*1, use_bias=False))
-
     model.add(Reshape((20, n_var, 1)))
     model.add(Dense(1, activation="tanh", use_bias=False))
 

@@ -19,33 +19,33 @@ class WGAN():
         self.BATCH_SIZE = 10
         self.latent_space = 128
         self.n_critic = 5
-        self.num_examples_to_generate = 5
-        seed = tf.random.normal([self.num_examples_to_generate, self.latent_space])
 
+        # building the components of the WGAN-GP
         self.generator = build_generator(self.latent_space, self.n_features)
-
         self.discriminator = build_discriminator(self.n_features)
-
         self.wgan = keras.models.Sequential([self.generator, self.discriminator])
 
+        # setting hyperparemeters of the WGAN-GP
         self.generator_mean_loss = tf.keras.metrics.Mean(dtype=tf.float32)
         self.discriminator_mean_loss = tf.keras.metrics.Mean(dtype=tf.float32)
-
         self.generator_optimizer = tf.keras.optimizers.Adam(learning_rate=0.0001, beta_1=0.5, beta_2=0.9)
         self.discriminator_optimizer = tf.keras.optimizers.Adam(learning_rate=0.0001, beta_1=0.5, beta_2=0.9)
 
+        # saving the events of the generator and discriminator
         generator_log_dir = './content/generator'
         discriminator_log_dir = './content/discriminator'
-
         self.generator_summary_writer = tf.summary.create_file_writer(generator_log_dir)
         self.discriminator_summary_writer = tf.summary.create_file_writer(discriminator_log_dir)
 
-        # for prediction
+        # for prediction function
         self.mse = tf.keras.losses.MeanSquaredError()
         self.optimizer = tf.keras.optimizers.Adam(1e-2)
 
 
-    # preproccessing
+    ############################################################################
+    ############################################################################
+    # preprocessing
+
     def window_aug(self, data, n_steps):
         """
         Processes the data into a moving window shape.
@@ -84,7 +84,10 @@ class WGAN():
 
 
 
+    ############################################################################
+    ############################################################################
     # training
+
     def generator_loss(self, fake_output):
         return -tf.reduce_mean(fake_output)
 
@@ -122,9 +125,9 @@ class WGAN():
             if batch.shape[0]==self.BATCH_SIZE:
                 noise = tf.random.normal([self.BATCH_SIZE, self.latent_space])
             else:
-                noise = tf.random.normal([10, self.latent_space])
-            generated_images = self.generator(noise, training=True)
-            fake_output = self.discriminator(generated_images, training=True)
+                noise = tf.random.normal([batch.shape[0]%self.BATCH_SIZE, self.latent_space])
+            generated_data = self.generator(noise, training=True)
+            fake_output = self.discriminator(generated_data, training=True)
             gen_loss = self.generator_loss(fake_output)
 
 
@@ -145,14 +148,14 @@ class WGAN():
             else:
                 noise = tf.random.normal([batch.shape[0]%self.BATCH_SIZE, self.latent_space])
 
-            generated_images = self.generator(noise, training=True)
+            generated_data = self.generator(noise, training=True)
 
             real_output = self.discriminator(batch, training=True)
-            fake_output = self.discriminator(generated_images, training=True)
+            fake_output = self.discriminator(generated_data, training=True)
 
             gen_loss = self.generator_loss(fake_output)
             disc_loss_without = self.discriminator_loss(real_output, fake_output)
-            gp = self.gradient_penalty(functools.partial(self.discriminator, training=True), batch, generated_images)
+            gp = self.gradient_penalty(functools.partial(self.discriminator, training=True), batch, generated_data)
             disc_loss = self.discriminator_loss(real_output, fake_output) + gp*10.0
 
         gradients_of_discriminator = disc_tape.gradient(disc_loss, self.discriminator.trainable_variables)
@@ -202,14 +205,22 @@ class WGAN():
 
         return hist
 
+    ############################################################################
+    ############################################################################
     # prediction
     def mse_loss(self, inp, outp):
+        """
+        Calculates the MSE loss between the points
+        """
         inp = tf.reshape(inp, [-1, self.n_features])
         outp = tf.reshape(outp, [-1, self.n_features])
         return self.mse(inp, outp)
 
 
     def opt_step(self, latent_values, real_coding):
+        """
+        Minimizes the loss between generated point and inputted point
+        """
         with tf.GradientTape() as tape:
             tape.watch(latent_values)
             gen_output = self.generator(latent_values, training=False)
@@ -234,7 +245,11 @@ class WGAN():
         return latent_values
 
     def predict(self, X_train_concat_flatten, scaler, X_train_concat):
-        X_generated = np.zeros((1, self.n_features))
+        """
+        Optimizes the latent space of the input then produces a prediction from
+        the generator.
+        """
+        predicted_vals = np.zeros((1, self.n_features))
 
         for n in range(0, X_train_concat.shape[0], self.ntimes):
             real_coding = X_train_concat_flatten[n].reshape(1,-1)
@@ -244,9 +259,9 @@ class WGAN():
 
             latent_values = self.optimize_coding(real_coding)
 
-            X_generated_1 = scaler.inverse_transform((self.generator.predict(tf.convert_to_tensor(latent_values)).reshape(self.ntimes,self.n_features)+1)/2)
-            X_generated_1 = X_generated_1.reshape(self.ntimes, self.n_features)
-            X_generated = np.concatenate((X_generated, X_generated_1), axis=0)
+            predicted_vals_1 = scaler.inverse_transform((self.generator.predict(tf.convert_to_tensor(latent_values)).reshape(self.ntimes,self.n_features)+1)/2)
+            predicted_vals_1 = predicted_vals_1.reshape(self.ntimes, self.n_features)
+            predicted_vals = np.concatenate((predicted_vals, predicted_vals_1), axis=0)
 
-        X_generated = X_generated[1:,:]
-        return X_generated
+        predicted_vals = predicted_vals[1:,:]
+        return predicted_vals
