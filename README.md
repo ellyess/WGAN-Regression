@@ -1,4 +1,4 @@
-# Independant Research Project
+# Independent Research Project
 ## Exploring regression with Wasserstein Generative Adversarial Networks
 
 Code produced for the paper "Exploring regression with Wasserstein Generative Adversarial Networks" by Ellyess Benmoufok, supervised by: Christopher Pain, Alexandra Porter and Toby Phillips.
