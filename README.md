@@ -28,7 +28,7 @@ All the `Python` library prerequistes can be found and installed via `requiremen
 ### Notebooks:
 * Run `run_models.ipynb` for synthetic datasets
 * Run `Multi_Output_WGAN_Spiral.ipynb` for as a stand alone notebook demonstrating the Multi-output regression.
-* alternative code
+* Alternative code (alternative code folder):
   * Run `run_models_silverdata.ipynb` for silver nanoparticle dataset
   * Run `Fixed_input.ipynb` for Fixed-input regression
 
