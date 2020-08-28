@@ -26,11 +26,10 @@ All the `Python` library prerequistes can be found and installed via `requiremen
 * Run the notebooks using `jupyter-notebook`
 
 ### Notebooks:
-* Run `run_models.ipynb` for synthetic datasets
-* Run `Multi_Output_WGAN_Spiral.ipynb` for as a stand alone notebook demonstrating the Multi-output regression.
-* Alternative code (alternative code folder):
-  * Run `run_models_silverdata.ipynb` for silver nanoparticle dataset
-  * Run `Fixed_input.ipynb` for Fixed-input regression
+* Run `notebooks/run_models.ipynb` for synthetic datasets
+* Run `notebooks/Multi_Output_WGAN_Spiral.ipynb` for as a stand alone notebook demonstrating the Multi-output regression.
+* Run `alternative code/notebooks/run_models_silverdata.ipynb` for silver nanoparticle dataset using alternative code
+* Run `alternative code/notebooks/Fixed_input.ipynb` for Fixed-input regression using alternative code
 
 ### The Data
 * Synthetic datasets found in `datasets.py`: `sinus`, `circle`, `multi`, `3d`, `moons` taken from `sklelarn.datasets`, `helix, `eye` and `heter`
