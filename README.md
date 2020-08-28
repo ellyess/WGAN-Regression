@@ -1,13 +1,15 @@
 # Independant Research Project
-## Exploring regression with WGANs
+## Exploring regression with Wasserstein Generative Adversarial Networks
 
-Code produced for the paper "Exploring regression with WGANs" by Ellyess Benmoufok, supervised by: Christopher Pain, Alexandra Porter and Toby Phillips.
+Code produced for the paper "Exploring regression with Wasserstein Generative Adversarial Networks" by Ellyess Benmoufok, supervised by: Christopher Pain, Alexandra Porter and Toby Phillips.
 
 ## Getting Started
 
 ### Dependencies
 All the `Python` library prerequistes can be found and installed via `requirements.txt`:
 * jupyter
+* matplotlib
+* seaborn
 * numpy
 * pandas
 * sklearn
@@ -25,7 +27,10 @@ All the `Python` library prerequistes can be found and installed via `requiremen
 
 ### Notebooks:
 * Run `run_models.ipynb` for synthetic datasets
-* Run `run_models_silverdata.ipynb` for silver nanoparticle dataset
+* Run `Multi_Output_WGAN_Spiral.ipynb` for as a stand alone notebook demonstrating the Multi-output regression.
+* Alternative code (alternative code folder):
+  * Run `run_models_silverdata.ipynb` for silver nanoparticle dataset
+  * Run `Fixed_input.ipynb` for Fixed-input regression
 
 ### The Data
 * Synthetic datasets found in `datasets.py`: `sinus`, `circle`, `multi`, `3d`, `moons` taken from `sklelarn.datasets`, `helix, `eye` and `heter`
@@ -38,4 +43,4 @@ All the `Python` library prerequistes can be found and installed via `requiremen
 
 ## Further information:
 
-This code is directly associated with a project report, more information on motivation and purpose can be found in that paper. Code is commented for understanding of functions.
+This code is directly associated with a project report, more information on motivation and purpose can be found in that paper. Code is commented for understanding of functions. Alternative code was produced towards the end of the project and is briefly presented in the report, for future projects and development of this technique it would be ideal to focus on this section.
