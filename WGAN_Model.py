@@ -13,11 +13,10 @@ from sklearn.preprocessing import *
 class WGAN():
     def __init__(self, n_features):
 
-        self.ntimes = 20
         self.n_features = n_features
 
-        self.BATCH_SIZE = 10
-        self.latent_space = 128
+        self.BATCH_SIZE = 100
+        self.latent_space = 3
         self.n_critic = 5
 
         # building the components of the WGAN-GP
@@ -46,15 +45,6 @@ class WGAN():
     ############################################################################
     # preprocessing
 
-    def window_aug(self, data, n_steps):
-        """
-        Processes the data into a moving window shape.
-        """
-        X_train_concat = []
-        for i in range(len(data) - self.ntimes*n_steps+1):
-            X_train_concat.append(data[i:i+self.ntimes*n_steps:n_steps])
-        return np.array(X_train_concat)
-
     def preproc(self, X_train, y_train, z_train=0):
         """
         Prepares the data for the WGAN-GP by splitting the data set
@@ -65,14 +55,9 @@ class WGAN():
         scaler = MinMaxScaler()
         X_train_scaled = scaler.fit_transform(sample_data)*2 - 1
 
-        n_steps = 1 # n_steps between times
-
-        X_train_concat = self.window_aug(X_train_scaled, n_steps)
-        X_train_concat_flatten = X_train_concat.reshape(X_train_concat.shape[0], self.n_features*self.ntimes )
-
-        train_dataset = X_train_concat.reshape(X_train_concat.shape[0], 20, self.n_features, 1).astype('float32')
+        train_dataset = X_train_scaled.reshape(-1, self.n_features).astype('float32')
         train_dataset = tf.data.Dataset.from_tensor_slices(train_dataset)
-        train_dataset = train_dataset.shuffle(len(X_train_concat))
+        train_dataset = train_dataset.shuffle(len(X_train_scaled))
         train_dataset = train_dataset.batch(self.BATCH_SIZE)
 
         num=0
@@ -80,8 +65,7 @@ class WGAN():
             print("every time the data shape",data.shape)
             num+=1
 
-        return train_dataset, X_train_concat_flatten, scaler, X_train_concat
-
+        return train_dataset, scaler, X_train_scaled
 
 
     ############################################################################
@@ -208,13 +192,14 @@ class WGAN():
     ############################################################################
     ############################################################################
     # prediction
-    def mse_loss(self, inp, outp):
-        """
-        Calculates the MSE loss between the points
-        """
-        inp = tf.reshape(inp, [-1, self.n_features])
-        outp = tf.reshape(outp, [-1, self.n_features])
-        return self.mse(inp, outp)
+
+    # def mse_loss(self, inp, outp):
+    #     """
+    #     Calculates the MSE loss between the x-coordinates
+    #     """
+    #     inp = tf.reshape(inp, [-1, self.n_features])
+    #     outp = tf.reshape(outp, [-1, self.n_features])
+    #     return self.mse(inp[:,0], outp[:,0])
 
 
     def opt_step(self, latent_values, real_coding):
@@ -224,7 +209,7 @@ class WGAN():
         with tf.GradientTape() as tape:
             tape.watch(latent_values)
             gen_output = self.generator(latent_values, training=False)
-            loss = self.mse_loss(real_coding, gen_output[:,:(self.ntimes - 1),:,:])
+            loss = self.mse_loss(real_coding, gen_output)
 
         gradient = tape.gradient(loss, latent_values)
         self.optimizer.apply_gradients(zip([gradient], [latent_values]))
@@ -244,24 +229,35 @@ class WGAN():
 
         return latent_values
 
-    def predict(self, X_train_concat_flatten, scaler, X_train_concat):
+    def predict(self, input_data, scaler):
         """
         Optimizes the latent space of the input then produces a prediction from
         the generator.
         """
         predicted_vals = np.zeros((1, self.n_features))
 
-        for n in range(0, X_train_concat.shape[0], self.ntimes):
-            real_coding = X_train_concat_flatten[n].reshape(1,-1)
-            real_coding = real_coding[:,:self.n_features*(self.ntimes - 1)]
+        for n in range(len(input_data)):
+            print("Optimizing latent space for point ", n, " / ", len(input_data))
+            real_coding = input_data[n].reshape(1,-1)
             real_coding = tf.constant(real_coding)
             real_coding = tf.cast(real_coding, dtype=tf.float32)
 
             latent_values = self.optimize_coding(real_coding)
 
-            predicted_vals_1 = scaler.inverse_transform((self.generator.predict(tf.convert_to_tensor(latent_values)).reshape(self.ntimes,self.n_features)+1)/2)
-            predicted_vals_1 = predicted_vals_1.reshape(self.ntimes, self.n_features)
+            predicted_vals_1 = scaler.inverse_transform((self.generator.predict(tf.convert_to_tensor(latent_values)).reshape(1, self.n_features)+1)/2)
+            predicted_vals_1 = predicted_vals_1.reshape(1, self.n_features)
             predicted_vals = np.concatenate((predicted_vals, predicted_vals_1), axis=0)
 
         predicted_vals = predicted_vals[1:,:]
         return predicted_vals
+
+
+
+    # Single Input is implemented above for prediction across the whole range
+    # please uncomment the function below and comment out the function with the
+    # same name above for it to run
+
+    def mse_loss(self, inp, outp):
+        inp = tf.reshape(inp, [-1, self.n_features])
+        outp = tf.reshape(outp, [-1, self.n_features])
+        return self.mse(inp, outp)
