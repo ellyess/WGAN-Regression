@@ -193,13 +193,13 @@ class WGAN():
     ############################################################################
     # prediction
 
-    # def mse_loss(self, inp, outp):
-    #     """
-    #     Calculates the MSE loss between the x-coordinates
-    #     """
-    #     inp = tf.reshape(inp, [-1, self.n_features])
-    #     outp = tf.reshape(outp, [-1, self.n_features])
-    #     return self.mse(inp[:,0], outp[:,0])
+    def mse_loss(self, inp, outp):
+        """
+        Calculates the MSE loss between the x-coordinates
+        """
+        inp = tf.reshape(inp, [-1, self.n_features])
+        outp = tf.reshape(outp, [-1, self.n_features])
+        return self.mse(inp[:,0], outp[:,0])
 
 
     def opt_step(self, latent_values, real_coding):
@@ -257,7 +257,7 @@ class WGAN():
     # please uncomment the function below and comment out the function with the
     # same name above for it to run
 
-    def mse_loss(self, inp, outp):
-        inp = tf.reshape(inp, [-1, self.n_features])
-        outp = tf.reshape(outp, [-1, self.n_features])
-        return self.mse(inp, outp)
+    # def mse_loss(self, inp, outp):
+    #     inp = tf.reshape(inp, [-1, self.n_features])
+    #     outp = tf.reshape(outp, [-1, self.n_features])
+    #     return self.mse(inp, outp)
