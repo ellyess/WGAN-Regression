@@ -16,7 +16,7 @@ class WGAN():
         self.n_features = n_features
 
         self.BATCH_SIZE = 100
-        self.latent_space = 3
+        self.latent_space = 10
         self.n_critic = 5
 
         # building the components of the WGAN-GP
@@ -84,8 +84,7 @@ class WGAN():
         clipping to enforce the Lipschitz constraint.
         """
         def _interpolate(a, b):
-            shape = [tf.shape(a)[0]] + [1] * (a.shape.ndims - 1)
-            alpha = tf.random.uniform(shape=shape, minval=0., maxval=1.)
+            alpha = tf.random.uniform(shape=[self.BATCH_SIZE, self.n_features], minval=-1., maxval=1.)
             inter = a + alpha * (b - a)
             inter.set_shape(a.shape)
             return inter
@@ -95,7 +94,7 @@ class WGAN():
             t.watch(x)
             pred = f(x)
         grad = t.gradient(pred, x)
-        norm = tf.norm(tf.reshape(grad, [tf.shape(grad)[0], -1]), axis=1)
+        norm = tf.sqrt(tf.reduce_sum(tf.square(grad)) + 1e-12)
         gp = tf.reduce_mean((norm - 1.)**2)
 
         return gp
@@ -145,7 +144,7 @@ class WGAN():
         gradients_of_discriminator = disc_tape.gradient(disc_loss, self.discriminator.trainable_variables)
         self.discriminator_optimizer.apply_gradients(zip(gradients_of_discriminator, self.discriminator.trainable_variables))
 
-        return disc_loss_without
+        return disc_loss
 
     def train(self, dataset, epochs):
         """

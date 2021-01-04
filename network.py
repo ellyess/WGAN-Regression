@@ -9,14 +9,15 @@ from keras.layers import (
 def build_generator(latent_space, n_var):
 
     model = tf.keras.Sequential()
-    model.add(Dense(n_var*5, input_shape=(latent_space,), use_bias=False))
+    model.add(Dense(n_var*50, input_shape=(latent_space,), use_bias=True))
     model.add(BatchNormalization())
     model.add(LeakyReLU())
-    model.add(Dense(n_var*3, use_bias=False))
+    model.add(Dense(n_var*30, use_bias=True))
     model.add(BatchNormalization())
     model.add(LeakyReLU())
-    model.add(Dense(n_var*3, use_bias=False))
-    model.add(Dense(n_var, activation="tanh", use_bias=False))
+    model.add(Dense(n_var*15, use_bias=True))
+    model.add(Dense(n_var*15, use_bias=True))
+    model.add(Dense(n_var, activation="tanh", use_bias=True))
 
     return model
 
