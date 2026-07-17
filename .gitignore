@@ -12,6 +12,10 @@ venv/
 outputs/
 content/
 *.h5
+*.pt
+
+# Shipped pretrained generator weights are the exception
+!pretrained/*.h5
 
 # OS
 .DS_Store

@@ -1,6 +1,11 @@
 # WGAN-Regression
 
-**Regression with Wasserstein Generative Adversarial Networks**: the original research code behind the published paper [*Multi-Output Regression with Generative Adversarial Networks (MOR-GANs)*](https://doi.org/10.3390/app12189209) (Applied Sciences, 2022).
+[![CI](https://github.com/ellyess/WGAN-Regression/actions/workflows/ci.yml/badge.svg)](https://github.com/ellyess/WGAN-Regression/actions/workflows/ci.yml)
+[![Paper](https://img.shields.io/badge/DOI-10.3390%2Fapp12189209-blue)](https://doi.org/10.3390/app12189209)
+[![Python](https://img.shields.io/badge/python-3.9%20|%203.10%20|%203.11-blue)](requirements.txt)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
+**Regression with Wasserstein Generative Adversarial Networks**: the original research code behind the published paper [*Multi-Output Regression with Generative Adversarial Networks (MOR-GANs)*](https://doi.org/10.3390/app12189209) (Applied Sciences, 2022), extended into a tested, benchmarked package with TensorFlow and PyTorch backends.
 
 Standard regression models predict a single "best" output for each input. This project takes a different route: train a **WGAN-GP** on the *joint* distribution of inputs and outputs, then make predictions by **optimising the generator's latent space** until generated samples land on a query input. Because every prediction is a fresh sample from the learned conditional distribution p(y | x), the model naturally handles noise, heteroscedasticity, and even **multi-valued and multi-modal** responses that would break a conventional regressor, and it does so with no problem-specific tuning.
 
@@ -24,74 +29,103 @@ This repository is my Independent Research Project (MSc, Imperial College London
 > *Multi-Output Regression with Generative Adversarial Networks (MOR-GANs).*
 > Applied Sciences **12**(18), 9209 (2022). [doi:10.3390/app12189209](https://doi.org/10.3390/app12189209)
 
-The `Toby/` handoff snapshot and bulk training artefacts that used to live in this repo have been removed for clarity (they remain in the git history; the handoff's continuation is the MORGAN-Framework repo).
+Since publication the repository has been extended with a PyTorch port, MDN and conditional-diffusion baselines, quantitative distribution metrics, a 50x faster batched prediction routine, tests and CI. The original method is unchanged; see [`docs/METHOD.md`](docs/METHOD.md) for the full write-up.
 
 ## How it works
 
-1. **Learn the joint distribution.** Each training pair (x, y) is one point in an n-dimensional space. A WGAN with gradient penalty (generator + critic, `wgan_regression/networks.py`) is trained to generate points indistinguishable from the data.
-2. **Predict by latent-space optimisation.** For a query x\*, gradient-descend on the latent vector z (generator frozen) until the generated point's input coordinates match x\*. Its output coordinates are then a draw from p(y | x = x\*).
-3. **Evaluate against GPR.** A Gaussian Process Regression baseline (`wgan_regression/gpr.py`) is compared by sampling from its posterior and contrasting conditional densities (`wgan_regression/density.py`).
+1. **Learn the joint distribution.** Each training pair (x, y) is one point in an n-dimensional space. A WGAN with gradient penalty (generator + critic) is trained to generate points indistinguishable from the data.
+2. **Predict by latent-space optimisation.** For a query x\*, gradient-descend on the latent vector z (generator frozen) until the generated point's input coordinates match x\*. Its output coordinates are then a draw from p(y | x = x\*). All queries are optimised as one batch, with optional multi-restart search for robustness.
+3. **Evaluate as distributions.** Every model in the benchmark (WGAN, GPR, MDN, diffusion) produces *samples* of y, scored with conditional Wasserstein distance, joint MMD and KDE log-likelihood.
 
-A fuller write-up of the method, hyperparameters and design decisions is in [`docs/METHOD.md`](docs/METHOD.md).
+## Benchmark
+
+`scripts/run_benchmark.py` trains all four models on all eight datasets and scores them with the metrics in `wgan_regression/metrics.py`. Full figures and numbers: [`docs/BENCHMARK.md`](docs/BENCHMARK.md).
+
+![Benchmark comparison on the moons dataset](docs/figures/benchmark/moons.png)
+
+![Benchmark comparison on the multi-modal dataset](docs/figures/benchmark/multi.png)
+
+![Benchmark comparison on the heteroscedastic dataset](docs/figures/benchmark/heter.png)
+
+The baselines are chosen to make the comparison honest: **GPR** is the classical probabilistic regressor the paper compared against, the **Mixture Density Network** is the classic neural answer to multi-modal regression, and **conditional diffusion** is the post-2022 state of the art in generative modelling.
 
 ## Repository structure
 
 ```
-├── wgan_regression/          # The library
-│   ├── wgan.py               #   WGAN-GP: preprocessing, training, latent-space prediction
-│   ├── networks.py           #   Generator and critic architectures
-│   ├── datasets.py           #   Benchmark datasets (sine, circle, moons, multimodal, ...)
-│   ├── gpr.py                #   Gaussian Process Regression baseline (GPy)
-│   └── density.py            #   Conditional-slice helpers for density plots
+├── wgan_regression/              # The library (TensorFlow backend)
+│   ├── wgan.py                   #   WGAN-GP: training + batched latent-space prediction
+│   ├── networks.py               #   Generator and critic architectures
+│   ├── datasets.py               #   Benchmark datasets (sine, circle, moons, multimodal, ...)
+│   ├── metrics.py                #   Conditional W1, joint MMD, KDE NLL
+│   ├── mdn.py                    #   Mixture Density Network baseline
+│   ├── gpr.py                    #   Gaussian Process Regression baseline (GPy)
+│   ├── density.py                #   Conditional-slice helpers for density plots
+│   └── pytorch/                  # PyTorch backend
+│       ├── wgan.py               #   API-compatible WGAN-GP port
+│       ├── networks.py           #   Generator and critic in torch.nn
+│       └── diffusion.py          #   Conditional DDPM baseline
 ├── scripts/
-│   └── run_fixed_input.py    # End-to-end train + fixed-input prediction (CLI)
-├── notebooks/
-│   ├── run_models.ipynb              # WGAN vs GPR comparison on any dataset
-│   ├── Fixed_Input.ipynb             # Fixed-input prediction walkthrough
-│   └── Multi_Output_WGAN_Spiral.ipynb# Standalone multi-output (3-D spiral) demo
-├── data/                     # CSV/XLSX datasets used by notebooks and datasets.py
+│   ├── run_fixed_input.py        # Train + fixed-input prediction (CLI)
+│   └── run_benchmark.py          # Full model comparison with metrics + figures
+├── tests/                        # Pytest suite (run in CI)
+├── notebooks/                    # Walkthrough notebooks
+├── pretrained/                   # Generator weights per dataset (from the benchmark)
+├── data/                         # CSV/XLSX datasets
 └── docs/
-    ├── METHOD.md             # Method write-up
-    └── figures/              # Result figures shown above
+    ├── METHOD.md                 # Method write-up
+    ├── BENCHMARK.md              # Benchmark results table
+    └── figures/                  # Result figures
 ```
 
 ## Getting started
 
-Python 3.8-3.11 with TensorFlow 2.x (Keras 2):
+Everything runs locally on CPU; no notebooks services or GPUs required.
 
 ```bash
-git clone https://github.com/EllyessB/WGAN-Regression.git
+git clone https://github.com/ellyess/WGAN-Regression.git
 cd WGAN-Regression
 pip install -r requirements.txt
 ```
 
-> `GPy` is only needed for the GPR baseline; comment it out of `requirements.txt` if you only want the WGAN.
+> `GPy` is only needed for the GPR baseline and `torch` only for the PyTorch backend and diffusion baseline; everything else works without them.
 
 Train on a dataset and predict at fixed inputs (figures are written to `outputs/`):
 
 ```bash
 python scripts/run_fixed_input.py --scenario moons
-python scripts/run_fixed_input.py --scenario sinus --epochs 500
-python scripts/run_fixed_input.py --help   # all options
+python scripts/run_fixed_input.py --help          # all options
 ```
 
-Or use the library directly:
+Or use the library directly. With the shipped pretrained weights you can skip training entirely:
 
 ```python
-from wgan_regression import WGAN
-from wgan_regression import datasets
+import numpy as np
+from wgan_regression import WGAN, datasets
+# from wgan_regression.pytorch import WGAN       # same API, PyTorch backend
 
-X_train, y_train, *_ = datasets.get_dataset(500, "moons")
+X_train, y_train, *_ = datasets.get_dataset(500, "moons", seed=0)
 
-wgan = WGAN(n_features=2)                                # match_cols=1 -> fixed-input mode
+wgan = WGAN(n_features=2)                        # match_cols=1 -> fixed-input mode
 train_ds, scaler, _ = wgan.preproc(X_train, y_train)
-wgan.train(train_ds, epochs=1000)
+wgan.generator.load_weights("pretrained/moons_generator.h5")   # or wgan.train(train_ds, epochs=1000)
 
-queries_scaled = scaler.transform(queries) * 2 - 1       # queries: (n, 2) with pinned x
-samples = wgan.predict(queries_scaled, scaler)           # -> (n, 2) generated (x, y)
+xs = np.repeat([-1.0, 0.0, 0.5, 1.5], 20)                      # pinned query inputs
+queries = np.stack([xs, np.zeros_like(xs)], axis=1)
+queries_scaled = scaler.transform(queries) * 2 - 1
+samples = wgan.predict(queries_scaled, scaler, restarts=5, init_std=1.0)
 ```
 
-For the full comparisons, run the notebooks with `jupyter notebook notebooks/`.
+Reproduce the benchmark, tests and lint:
+
+```bash
+python scripts/run_benchmark.py                   # ~1h CPU; add --epochs 200 for a quick pass
+pytest -q
+ruff check .
+```
+
+### Prediction performance
+
+Prediction originally optimised each query point's latent vector in its own Python loop (500 Adam steps per point, tens of seconds for a batch of queries). The search now runs for **all queries in one compiled batch**, which is ~50x faster (80 queries: under a second versus ~40 s), and supports **multi-restart search** (`restarts=R` keeps the best of R independent searches per query) for robustness against local minima at almost no extra cost.
 
 ## Datasets
 

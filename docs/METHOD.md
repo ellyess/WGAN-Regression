@@ -81,29 +81,83 @@ experiments:
   coordinates are matched, projecting a complete query sample onto the learned
   manifold. Used when reconstructing test sets for density comparison.
 
-Since each query point is optimised independently (500 steps each), prediction
-is much slower than a forward pass, an accepted trade-off in this project;
-the MORGAN-Framework continuation explores the approach further.
+Two engineering improvements were added on top of the original method (the
+method itself is unchanged):
 
-## 4. Evaluation
+- **Batched search.** All query points are optimised together as one latent
+  batch inside a compiled graph, instead of a Python loop running 500 steps
+  per point. The per-query loss terms are independent, so results are
+  statistically identical; wall-clock time drops by roughly 50x (measured on
+  the moons dataset: 80 queries in under a second versus about 40 seconds
+  looped).
+- **Multi-restart search** (``predict(..., restarts=R)``). The search is
+  non-convex and a single start can settle in a basin where the matched
+  columns miss the query. With ``restarts=R``, R independent searches run in
+  the same batch and the best-matching candidate per query is kept. Because
+  the search is batched, extra restarts cost far less than proportional
+  time. ``init_std=1.0`` draws starts from the same prior the generator was
+  trained on, which explores more of the output manifold than the historical
+  ``0.1``.
 
-Two comparisons are made against a **GPR baseline** (`gpr.py`: GPy, RBF
-kernel, hyperparameters fitted by maximum likelihood):
+## 4. Baselines
 
-1. **Scatter overlays** of generated samples on the training data (see
-   `docs/figures/`).
+Every baseline produces *samples* from p(y | x), so all models are compared
+as distributions rather than point predictors:
+
+- **GPR** (`gpr.py`: GPy, RBF kernel, hyperparameters fitted by maximum
+  likelihood). The classical probabilistic regressor; its predictions are
+  drawn from the posterior at each test point, not taken at the mean. Its
+  Gaussian assumptions make it the reference the WGAN is meant to beat on
+  multi-modal and multi-valued data.
+- **MDN** (`mdn.py`: Mixture Density Network, Bishop 1994). A feed-forward
+  network predicting a K-component Gaussian mixture over y, trained by
+  maximum likelihood. The classic *neural* answer to multi-modal regression
+  and therefore the fairest neural baseline.
+- **Conditional diffusion** (`pytorch/diffusion.py`: a small DDPM whose
+  forward process noises y and whose MLP denoiser conditions on x). The
+  post-2022 state of the art in generative modelling, included so the WGAN
+  approach can be judged against what replaced GANs.
+
+## 5. Evaluation
+
+Three comparisons are made:
+
+1. **Scatter overlays** of generated samples on the test data (see
+   `docs/figures/benchmark/`, produced by `scripts/run_benchmark.py`).
 2. **Conditional density slices** (`density.py`): take a thin band of points
-   around a chosen x, collect their y values from (a) the true data, (b) WGAN
-   samples, (c) GPR posterior samples, and compare kernel density estimates.
-   Note the GPR is *sampled*, not evaluated at its mean, so both models are
-   compared as distributions.
+   around a chosen x, collect their y values from the true data and from
+   each model's samples, and compare kernel density estimates.
+3. **Quantitative metrics** (`metrics.py`), reported in
+   [`docs/BENCHMARK.md`](BENCHMARK.md):
+   - *conditional Wasserstein-1*: W1 distance between true and generated y
+     inside thin slices around chosen x values, averaged over slices;
+   - *joint MMD*: kernel maximum mean discrepancy between true and generated
+     (x, y) sample sets (RBF kernel, median-heuristic bandwidth);
+   - *KDE NLL*: negative log-likelihood of held-out true samples under a
+     kernel density estimate of the generated samples, which heavily
+     penalises missing modes.
 
-On the uni-modal `sinus` dataset the two methods are comparable; on the
+On the uni-modal `sinus` dataset the methods are comparable; on the
 multi-valued and multi-modal datasets the GPR collapses to a single (often
-unphysical) ridge while the WGAN recovers both branches/modes; on `heter` the
-WGAN tracks the growing noise amplitude without any bespoke modelling.
+unphysical) ridge while the sample-based models recover the branches/modes;
+on `heter` the WGAN tracks the growing noise amplitude without any bespoke
+modelling.
 
-## 5. Multi-output extension
+## 6. Two backends: TensorFlow and PyTorch
+
+The model exists in two API-compatible implementations:
+
+- `wgan_regression/wgan.py`: the original TensorFlow/Keras 2 implementation
+  used for the paper-era experiments;
+- `wgan_regression/pytorch/wgan.py`: a layer-for-layer PyTorch port (same
+  architectures, hyperparameters, gradient-penalty details and prediction
+  interface).
+
+Swapping backend is a one-line import change; the test suite checks the two
+classes expose the same public surface. The diffusion baseline lives on the
+PyTorch side.
+
+## 7. Multi-output extension
 
 `notebooks/Multi_Output_WGAN_Spiral.ipynb` is a standalone prototype of the
 idea that gave the paper its name: instead of one (x, y) point, each training
@@ -113,16 +167,18 @@ optimisation then conditions on partial observations of a trajectory. This
 prototype was developed further in the
 [MORGAN-Framework](https://github.com/trfphillips/MORGAN-Framework).
 
-## 6. Known limitations / quirks
+## 8. Known limitations / quirks
 
 Kept as-is to stay faithful to the code used for the experiments:
 
-- Prediction cost scales linearly with query count (500 optimisation steps
-  per point) and there is no convergence check on the latent search.
-- The latent search can land in a local minimum; with `match_cols=1` this is
-  usually benign (any point on the correct vertical slice is acceptable).
+- The latent search can land in a local minimum; `restarts` mitigates but
+  does not eliminate this, and there is no convergence check.
 - `n_critic`, network widths and the latent dimension were tuned by
   experimentation per dataset family, not systematically; some paper
   experiments used narrower networks (noted in `networks.py`).
 - The gradient-penalty interpolation over [-1, 1] deviates from the reference
-  WGAN-GP implementation (see §2).
+  WGAN-GP implementation (see §2). The PyTorch port reproduces the same
+  choice for parity.
+- GAN training quality varies run to run; benchmark numbers move between
+  seeds, and the fixed seeds in `scripts/run_benchmark.py` make a run
+  reproducible rather than definitive.

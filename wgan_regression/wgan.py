@@ -303,42 +303,66 @@ class WGAN:
             return self.mse(inp, outp)
         return self.mse(inp[:, :self.match_cols], outp[:, :self.match_cols])
 
-    def opt_step(self, optimizer, latent_values, real_coding):
-        """One gradient-descent step on the latent vector."""
-        with tf.GradientTape() as tape:
-            tape.watch(latent_values)
-            gen_output = self.generator(latent_values, training=False)
-            loss = self.mse_loss(real_coding, gen_output)
+    def optimize_coding(self, real_coding, steps=500, verbose=False,
+                        init_std=0.1):
+        """Find latent vectors whose generated points match the queries.
 
-        gradient = tape.gradient(loss, latent_values)
-        optimizer.apply_gradients(zip([gradient], [latent_values]))
+        All query points are optimised together as one batch: a latent
+        vector is held per query, and ``steps`` Adam updates minimise
+        :meth:`mse_loss` against the queries. The per-query loss terms are
+        independent, so batching does not couple the searches; it just
+        moves the loop from Python into a single compiled graph. Note the
+        much higher learning rate than in training: this optimises latent
+        vectors, not network weights.
 
-        return loss
+        Parameters
+        ----------
+        real_coding : tf.Tensor of shape (n_queries, n_features)
+            Scaled query points.
+        steps : int, optional
+            Number of Adam updates (default 500).
+        verbose : bool, optional
+            Print progress every 100 steps.
+        init_std : float, optional
+            Standard deviation of the random latent initialisation. The
+            historical default is 0.1; 1.0 matches the prior the generator
+            was trained on and explores more diverse starting points.
 
-    def optimize_coding(self, real_coding, steps=500):
-        """Find latent vectors whose generated points match a query point.
-
-        Starts from small random latent values and runs ``steps`` Adam
-        updates minimising :meth:`mse_loss` against ``real_coding``. Note
-        the much higher learning rate than in training: this optimises a
-        single latent vector, not network weights.
+        Returns
+        -------
+        tf.Variable of shape (n_queries, latent_space)
+            The optimised latent vectors.
         """
-        latent_values = tf.random.normal(
-            [len(real_coding), self.latent_space], mean=0.0, stddev=0.1)
-        latent_values = tf.Variable(latent_values)
-
+        latent_values = tf.Variable(tf.random.normal(
+            [len(real_coding), self.latent_space], mean=0.0, stddev=init_std))
         optimizer = tf.keras.optimizers.Adam(1e-2)
-        for _ in range(steps):
-            self.opt_step(optimizer, latent_values, real_coding)
+
+        @tf.function
+        def opt_step():
+            with tf.GradientTape() as tape:
+                gen_output = self.generator(latent_values, training=False)
+                loss = self.mse_loss(real_coding, gen_output)
+            gradient = tape.gradient(loss, latent_values)
+            optimizer.apply_gradients([(gradient, latent_values)])
+            return loss
+
+        for i in range(steps):
+            loss = opt_step()
+            if verbose and i % 100 == 0:
+                print("latent search step {}/{} - loss {:.6f}".format(
+                    i, steps, float(loss)))
 
         return latent_values
 
-    def predict(self, input_data, scaler):
+    def predict(self, input_data, scaler, steps=500, restarts=1,
+                init_std=0.1, verbose=False):
         """Generate predictions for a set of query points.
 
-        For each query point, optimises the latent space so the generated
-        sample matches the query (per ``match_cols``), then maps the
-        generated sample back to data space with the training scaler.
+        Optimises the latent space so generated samples match the queries
+        (per ``match_cols``), then maps the generated samples back to data
+        space with the training scaler. All queries are optimised in a
+        single batched search rather than one at a time, which makes
+        prediction orders of magnitude faster than a per-point loop.
 
         Parameters
         ----------
@@ -349,27 +373,42 @@ class WGAN:
         scaler : sklearn.preprocessing.MinMaxScaler
             The scaler fitted in :meth:`preproc`, used to inverse-transform
             generated samples.
+        steps : int, optional
+            Latent-search Adam updates (default 500).
+        restarts : int, optional
+            Number of independent latent searches per query; the candidate
+            with the lowest match error on the matched columns is kept.
+            The searches run as one batch, so extra restarts cost far less
+            than proportional time. Default 1 (historical behaviour).
+        init_std : float, optional
+            Latent initialisation spread, passed to :meth:`optimize_coding`.
+        verbose : bool, optional
+            Print latent-search progress.
 
         Returns
         -------
         ndarray of shape (n_queries, n_features)
             Generated sample points in original data space.
         """
-        predicted_vals = np.zeros((1, self.n_features))
+        queries = np.asarray(input_data).reshape(-1, self.n_features)
+        n_queries = len(queries)
 
-        for n in range(len(input_data)):
-            print("Optimizing latent space for point ", n, " / ", len(input_data))
-            real_coding = input_data[n].reshape(1, -1)
-            real_coding = tf.constant(real_coding)
-            real_coding = tf.cast(real_coding, dtype=tf.float32)
+        # Stack `restarts` copies of the queries into one big search batch.
+        tiled = np.tile(queries, (restarts, 1))
+        real_coding = tf.cast(tf.convert_to_tensor(tiled), tf.float32)
 
-            latent_values = self.optimize_coding(real_coding)
+        latent_values = self.optimize_coding(real_coding, steps=steps,
+                                             verbose=verbose,
+                                             init_std=init_std)
+        generated = self.generator(latent_values, training=False).numpy()
 
-            # Undo the [-1, 1] stretch, then the min-max scaling.
-            generated = self.generator.predict(
-                tf.convert_to_tensor(latent_values)).reshape(1, self.n_features)
-            prediction = scaler.inverse_transform((generated + 1) / 2)
-            predicted_vals = np.concatenate(
-                (predicted_vals, prediction.reshape(1, self.n_features)), axis=0)
+        if restarts > 1:
+            # Keep, per query, the restart whose matched columns landed
+            # closest to the query.
+            k = self.n_features if self.match_cols is None else self.match_cols
+            match_err = ((generated[:, :k] - tiled[:, :k]) ** 2).mean(axis=1)
+            best = match_err.reshape(restarts, n_queries).argmin(axis=0)
+            generated = generated[best * n_queries + np.arange(n_queries)]
 
-        return predicted_vals[1:, :]
+        # Undo the [-1, 1] stretch, then the min-max scaling.
+        return scaler.inverse_transform((generated + 1) / 2)
