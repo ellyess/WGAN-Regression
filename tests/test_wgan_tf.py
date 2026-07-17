@@ -96,3 +96,9 @@ def test_train_handles_partial_final_batch(tmp_path):
         ds, _, _ = wgan.preproc(X_train, y_train)
         hist = wgan.train(ds, epochs=1)
         assert np.isfinite(hist[0]).all()
+
+
+def test_latent_space_parameter():
+    wgan = WGAN(9, latent_space=16)
+    assert wgan.latent_space == 16
+    assert wgan.generator.input_shape == (None, 16)

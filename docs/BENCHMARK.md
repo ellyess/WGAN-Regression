@@ -2,14 +2,19 @@
 
 Produced by `scripts/run_benchmark.py`. Each model draws one y
 sample per test input; metrics compare those samples with the true
-test set (lower is better for all three).
+test set (lower is better for all three). Cells show the mean over
+seeds, followed by the standard deviation across seeds where more
+than one seed has been run (n varies per row; up to 1 seeds).
 
 - **W1**: mean Wasserstein-1 distance between conditional slices
-  of p(y | x)
+  of p(y | x), sliced on the first input feature
 - **MMD**: kernel maximum mean discrepancy between the joint
   (x, y) samples
 - **NLL**: negative log-likelihood of the true test points under
   a KDE of the model samples
+
+UCI scenarios (concrete, energy, wine, yacht) are scored in
+standardised space; see `docs/METHOD.md`.
 
 | Scenario | Model | W1 | MMD | NLL |
 |---|---|---|---|---|
@@ -53,3 +58,7 @@ test set (lower is better for all three).
 |  | MDN | **1.567** | 0.0045 | **5.35** |
 |  | Diffusion | 1.581 | **0.0013** | 5.57 |
 |  | WGAN-GP (modern) | 1.904 | 0.0283 | 5.73 |
+| yacht | WGAN-GP | 0.641 | 0.0249 | 7.42 |
+|  | GPR | **0.029** | **0.0000** | **7.31** |
+|  | MDN | 0.817 | 0.0255 | 8.88 |
+|  | Diffusion | 0.207 | 0.0003 | 7.38 |

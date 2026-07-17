@@ -77,10 +77,15 @@ class WGAN:
         * an exponential moving average (decay 0.999) of the generator
           weights, the standard variance-reduction trick for GAN
           evaluation; see :meth:`use_ema_weights`.
+    latent_space : int, optional
+        Dimension of the generator's latent vector (default 10, the paper
+        value). For datasets with many input features, prediction pins
+        ``match_cols`` coordinates via the latent search, so the latent
+        dimension should comfortably exceed the number of matched columns.
     """
 
     def __init__(self, n_features, match_cols=1, output_dir="outputs",
-                 training_config="paper"):
+                 training_config="paper", latent_space=10):
         if training_config not in ("paper", "modern"):
             raise ValueError(
                 "training_config must be 'paper' or 'modern', got {!r}"
@@ -92,7 +97,7 @@ class WGAN:
         self.training_config = training_config
 
         self.BATCH_SIZE = 100
-        self.latent_space = 10
+        self.latent_space = latent_space
         # Critic updates per generator update. The Wasserstein loss is only
         # meaningful when the critic is trained close to optimality, so it
         # takes several steps for every generator step. The modern variant

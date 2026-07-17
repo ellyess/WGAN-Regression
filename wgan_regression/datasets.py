@@ -17,8 +17,26 @@ Scenario    Inputs    What it tests
 ``helix``   2         3-D helix: a curve, not a function, in input space.
 ==========  ========  ===========================================================
 
-Use :func:`get_dataset` to draw independent train/test/validation splits for
-any scenario by name.
+Four standard UCI regression benchmarks are also included so results can
+be compared with the wider uncertainty-quantification literature (files in
+``data/uci/``, sourced from the UCI Machine Learning Repository,
+https://archive.ics.uci.edu, CC BY 4.0):
+
+============  ========  =====================================================
+Scenario      Inputs    Target
+============  ========  =====================================================
+``concrete``  8         Concrete compressive strength (MPa).
+``energy``    8         Building heating load (energy efficiency, Y1).
+``wine``      11        Red wine quality score.
+``yacht``     6         Yacht residuary resistance.
+============  ========  =====================================================
+
+Synthetic scenarios draw three independent sets; the file-based UCI
+scenarios are randomly split 70/15/15 into train/test/validation instead
+(controlled by ``seed``).
+
+Use :func:`get_dataset` to obtain train/test/validation splits for any
+scenario by name.
 """
 
 from pathlib import Path
@@ -145,6 +163,13 @@ def gen_heteroscedastic(n_instance):
     return X.reshape(-1, 1), y.reshape(-1, 1)
 
 
+def _load_uci(name):
+    """Load a UCI table from ``data/uci/``; last column is the target."""
+    table = pd.read_csv(DATA_DIR / "uci" / "{}.csv".format(name))
+    values = table.to_numpy(dtype=float)
+    return values[:, :-1], values[:, -1:]
+
+
 _SCENARIOS = {
     "sinus": gen_sinusoidal,
     "circle": gen_circle,
@@ -155,6 +180,9 @@ _SCENARIOS = {
     "eye": gen_eye,
     "heter": gen_heteroscedastic,
 }
+
+# File-based UCI scenarios: split rather than redrawn per set.
+UCI_SCENARIOS = ("concrete", "energy", "wine", "yacht")
 
 
 def get_dataset(n_instance=1000, scenario="sinus", seed=None):
@@ -167,7 +195,9 @@ def get_dataset(n_instance=1000, scenario="sinus", seed=None):
         scenario).
     scenario : str, optional
         One of ``"sinus"``, ``"circle"``, ``"multi"``, ``"3d"``,
-        ``"moons"``, ``"helix"``, ``"eye"``, ``"heter"``.
+        ``"moons"``, ``"helix"``, ``"eye"``, ``"heter"``, or a UCI
+        scenario: ``"concrete"``, ``"energy"``, ``"wine"``, ``"yacht"``
+        (``n_instance`` ignored; the file is split 70/15/15).
     seed : int, optional
         If given, seeds NumPy's global RNG for reproducible draws.
 
@@ -176,13 +206,23 @@ def get_dataset(n_instance=1000, scenario="sinus", seed=None):
     X_train, y_train, X_test, y_test, X_valid, y_valid : ndarray
         Three independent draws from the same scenario.
     """
-    if scenario not in _SCENARIOS:
+    known = sorted(list(_SCENARIOS) + list(UCI_SCENARIOS))
+    if scenario not in known:
         raise NotImplementedError(
-            "Unknown scenario {!r}; choose from {}".format(
-                scenario, sorted(_SCENARIOS)))
+            "Unknown scenario {!r}; choose from {}".format(scenario, known))
 
     if seed is not None:
         np.random.seed(seed)
+
+    if scenario in UCI_SCENARIOS:
+        X, y = _load_uci(scenario)
+        order = np.random.permutation(len(X))
+        n_test = n_valid = int(0.15 * len(X))
+        test_idx = order[:n_test]
+        valid_idx = order[n_test:n_test + n_valid]
+        train_idx = order[n_test + n_valid:]
+        return (X[train_idx], y[train_idx], X[test_idx], y[test_idx],
+                X[valid_idx], y[valid_idx])
 
     generate = _SCENARIOS[scenario]
     X_train, y_train = generate(n_instance)

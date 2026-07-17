@@ -50,10 +50,12 @@ class WGAN:
         ``"paper"`` (default) or ``"modern"``; see the TensorFlow
         implementation for the definition of the modern variant (TTUR,
         reference gradient penalty, generator EMA).
+    latent_space : int, optional
+        Dimension of the generator's latent vector (default 10).
     """
 
     def __init__(self, n_features, match_cols=1, output_dir="outputs",
-                 device="cpu", training_config="paper"):
+                 device="cpu", training_config="paper", latent_space=10):
         if training_config not in ("paper", "modern"):
             raise ValueError(
                 "training_config must be 'paper' or 'modern', got {!r}"
@@ -66,7 +68,7 @@ class WGAN:
         self.training_config = training_config
 
         self.BATCH_SIZE = 100
-        self.latent_space = 10
+        self.latent_space = latent_space
         if training_config == "modern":
             self.n_critic = 2
             discriminator_lr = 4e-4
