@@ -79,10 +79,14 @@ def train_with_selection(wgan, train_ds, scaler, X_valid, y_valid, args):
 
     GAN sample quality oscillates over training, so taking the final
     weights is a lottery. Instead, after every ``args.chunk`` epochs the
-    generator's *raw* samples are scored against the validation split
-    (MMD in scaled space); the best-scoring weights are kept and training
-    stops early once ``args.patience`` chunks pass without improvement.
-    The test split plays no part in selection, so there is no leakage.
+    generator's *raw* samples are scored against the validation split and
+    the best-scoring weights are kept; training stops early once
+    ``args.patience`` chunks pass without improvement. The score is the
+    conditional Wasserstein-1 over slices (the same family of metric the
+    benchmark reports): joint MMD was tried first and proved too coarse,
+    selecting snapshots with plausible global structure but poor
+    conditionals. The test split plays no part in selection, so there is
+    no leakage.
     """
     import contextlib
     import io
@@ -91,8 +95,9 @@ def train_with_selection(wgan, train_ds, scaler, X_valid, y_valid, args):
 
     valid_scaled = scaler.transform(
         np.concatenate([X_valid, y_valid], axis=1)) * 2 - 1
+    n_inputs = valid_scaled.shape[1] - 1
 
-    best_mmd, best_weights, best_epoch = np.inf, None, 0
+    best_w1, best_weights, best_epoch = np.inf, None, 0
     since_best = 0
     trained = 0
     t0 = time.time()
@@ -104,10 +109,12 @@ def train_with_selection(wgan, train_ds, scaler, X_valid, y_valid, args):
 
         z = tf.random.normal([len(valid_scaled), wgan.latent_space])
         raw = wgan.generator(z, training=False).numpy()
-        mmd = metrics.mmd_rbf(valid_scaled[:500], raw[:500])
+        w1 = metrics.conditional_wasserstein(
+            valid_scaled[:, :n_inputs], valid_scaled[:, -1:],
+            raw[:, :n_inputs], raw[:, -1:])
 
-        if mmd < best_mmd:
-            best_mmd, best_epoch = mmd, trained
+        if np.isfinite(w1) and w1 < best_w1:
+            best_w1, best_epoch = w1, trained
             best_weights = wgan.generator.get_weights()
             since_best = 0
         else:
@@ -116,10 +123,11 @@ def train_with_selection(wgan, train_ds, scaler, X_valid, y_valid, args):
         if since_best >= args.patience:
             break
 
-    wgan.generator.set_weights(best_weights)
+    if best_weights is not None:
+        wgan.generator.set_weights(best_weights)
     print("  WGAN trained {} epochs in {:.0f}s; kept epoch {} "
-          "(validation MMD {:.5f})".format(
-              trained, time.time() - t0, best_epoch, best_mmd))
+          "(validation conditional W1 {:.4f})".format(
+              trained, time.time() - t0, best_epoch, best_w1))
 
 
 def wgan_samples(scenario, X_train, y_train, X_test, X_valid, y_valid, args):
