@@ -76,3 +76,23 @@ def test_match_cols_one_ignores_output_column():
     a = tf.constant([[0.2, -0.4]], dtype=tf.float32)
     b = tf.constant([[0.2, 0.9]], dtype=tf.float32)
     assert float(wgan.mse_loss(a, b)) == 0.0
+
+
+def test_train_handles_partial_final_batch(tmp_path):
+    """Datasets not divisible by the batch size must train cleanly.
+
+    Regression test for a historical bug: the gradient penalty drew its
+    interpolation coefficient with a hard-coded [BATCH_SIZE, n_features]
+    shape and crashed on the smaller final batch (surfaced by the eye
+    dataset's 951 rows).
+    """
+    np.random.seed(0)
+    tf.random.set_seed(0)
+    X_train, y_train, *_ = datasets.get_dataset(151, "sinus", seed=0)
+
+    for config in ["paper", "modern"]:
+        wgan = WGAN(2, training_config=config,
+                    output_dir=str(tmp_path / config))
+        ds, _, _ = wgan.preproc(X_train, y_train)
+        hist = wgan.train(ds, epochs=1)
+        assert np.isfinite(hist[0]).all()

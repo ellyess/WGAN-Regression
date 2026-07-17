@@ -195,13 +195,15 @@ class WGAN:
         modern configuration uses the reference formulation.
         """
         def _interpolate(a, b):
+            # Use the batch's actual size: the final batch of an epoch can
+            # be smaller than BATCH_SIZE (the historical fixed-size draw
+            # crashed on datasets not divisible by the batch size).
             if self.training_config == "modern":
                 alpha = tf.random.uniform(
-                    shape=[self.BATCH_SIZE, 1], minval=0., maxval=1.)
+                    shape=[tf.shape(a)[0], 1], minval=0., maxval=1.)
             else:
                 alpha = tf.random.uniform(
-                    shape=[self.BATCH_SIZE, self.n_features],
-                    minval=-1., maxval=1.)
+                    shape=tf.shape(a), minval=-1., maxval=1.)
             inter = a + alpha * (b - a)
             inter.set_shape(a.shape)
             return inter
