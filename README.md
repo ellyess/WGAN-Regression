@@ -39,15 +39,24 @@ Since publication the repository has been extended with a PyTorch port, MDN and 
 
 ## Benchmark
 
-`scripts/run_benchmark.py` trains all four models on all eight datasets and scores them with the metrics in `wgan_regression/metrics.py`. Full figures and numbers: [`docs/BENCHMARK.md`](docs/BENCHMARK.md).
+`scripts/run_benchmark.py` trains every model on all eight datasets, selects WGAN checkpoints by validation conditional-W1 (with early stopping), and scores everything with the metrics in `wgan_regression/metrics.py`. Full table and numbers: [`docs/BENCHMARK.md`](docs/BENCHMARK.md). The baselines are chosen to make the comparison honest: **GPR** is the classical probabilistic regressor the paper compared against, the **Mixture Density Network** is the classic neural answer to multi-modal regression, and **conditional diffusion** is the post-2022 state of the art in generative modelling.
 
-![Benchmark comparison on the moons dataset](docs/figures/benchmark/moons.png)
+![Benchmark comparison on the circle dataset](docs/figures/benchmark/circle.png)
 
-![Benchmark comparison on the multi-modal dataset](docs/figures/benchmark/multi.png)
+*The headline case: on the multi-valued `circle` dataset the GPR collapses into a filled blob (a Gaussian conditional cannot represent two y branches, so posterior samples fill the hole) while the WGAN reproduces the annulus and posts the best conditional W1 of all four models (0.15 vs 0.21 to 0.26).*
 
 ![Benchmark comparison on the heteroscedastic dataset](docs/figures/benchmark/heter.png)
 
-The baselines are chosen to make the comparison honest: **GPR** is the classical probabilistic regressor the paper compared against, the **Mixture Density Network** is the classic neural answer to multi-modal regression, and **conditional diffusion** is the post-2022 state of the art in generative modelling.
+*On `heter`, the WGAN tracks the vanishing noise at small x while GPR's constant-noise assumption over-scatters that region.*
+
+![Benchmark comparison on the moons dataset](docs/figures/benchmark/moons.png)
+
+Findings, honestly stated:
+
+- The WGAN's advantage shows exactly where the paper claimed: multi-valued responses (`circle`, best of all models) and input-dependent noise (`heter`, competitive), where Gaussian assumptions break.
+- On simple uni-modal data (`sinus`, `3d`) the WGAN has no advantage and the classical/lighter models win on the numbers.
+- The 2022-era baselines are strong: the MDN and conditional diffusion match or beat the WGAN on most synthetic sets, though the MDN fails badly on the real `eye` data (W1 176 vs the WGAN's 32 and diffusion's 16).
+- A **modernised training variant** (`training_config="modern"`: TTUR, reference gradient penalty, generator EMA; see [`docs/METHOD.md`](docs/METHOD.md)) trains roughly twice as fast per epoch but is not a uniform quality win: better on `heter`, `eye` and `multi`, worse on `circle`, `sinus` and `3d`. The faithful paper configuration holds up. Both configurations ship as pretrained weights and appear as separate rows in the results table.
 
 ## Repository structure
 

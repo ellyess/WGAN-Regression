@@ -206,6 +206,13 @@ which adds a "WGAN-GP (modern)" row next to the faithful "WGAN-GP" row in
 [`BENCHMARK.md`](BENCHMARK.md) (baselines are reused from the paper-config
 run) and writes ``pretrained/<scenario>_generator_modern.h5``.
 
+Outcome of the experiment: the modern variant trains roughly twice as fast
+per epoch (2 critic steps instead of 5) and early-stops sooner, but sample
+quality is mixed rather than uniformly better; it improved conditional W1
+on ``heter``, ``eye`` and ``multi`` and regressed on ``circle``, ``sinus``
+and ``3d``. On these small, low-dimensional problems the paper
+configuration is competitive with its modernised counterpart.
+
 ## 9. Known limitations / quirks
 
 Kept as-is to stay faithful to the code used for the experiments:
