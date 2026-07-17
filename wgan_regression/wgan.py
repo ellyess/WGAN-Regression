@@ -304,7 +304,7 @@ class WGAN:
         return self.mse(inp[:, :self.match_cols], outp[:, :self.match_cols])
 
     def optimize_coding(self, real_coding, steps=500, verbose=False,
-                        init_std=0.1):
+                        init_std=0.1, prior_weight=0.0):
         """Find latent vectors whose generated points match the queries.
 
         All query points are optimised together as one batch: a latent
@@ -327,6 +327,14 @@ class WGAN:
             Standard deviation of the random latent initialisation. The
             historical default is 0.1; 1.0 matches the prior the generator
             was trained on and explores more diverse starting points.
+        prior_weight : float, optional
+            Weight of an L2 penalty on the latent vectors. The generator
+            is only trained on latents from N(0, 1), so an unconstrained
+            search can wander far outside that prior and produce
+            off-manifold samples; a small penalty keeps the search inside
+            the region where the generator is meaningful (the standard
+            regulariser in GAN-inversion methods). 0 disables it
+            (historical behaviour).
 
         Returns
         -------
@@ -342,6 +350,9 @@ class WGAN:
             with tf.GradientTape() as tape:
                 gen_output = self.generator(latent_values, training=False)
                 loss = self.mse_loss(real_coding, gen_output)
+                if prior_weight > 0:
+                    loss += prior_weight * tf.reduce_mean(
+                        tf.square(latent_values))
             gradient = tape.gradient(loss, latent_values)
             optimizer.apply_gradients([(gradient, latent_values)])
             return loss
@@ -355,7 +366,7 @@ class WGAN:
         return latent_values
 
     def predict(self, input_data, scaler, steps=500, restarts=1,
-                init_std=0.1, verbose=False):
+                init_std=0.1, prior_weight=0.0, verbose=False):
         """Generate predictions for a set of query points.
 
         Optimises the latent space so generated samples match the queries
@@ -382,6 +393,10 @@ class WGAN:
             than proportional time. Default 1 (historical behaviour).
         init_std : float, optional
             Latent initialisation spread, passed to :meth:`optimize_coding`.
+        prior_weight : float, optional
+            L2 latent prior penalty, passed to :meth:`optimize_coding`.
+            Keeps searched latents inside the generator's training prior
+            so samples stay on the learned manifold.
         verbose : bool, optional
             Print latent-search progress.
 
@@ -399,7 +414,8 @@ class WGAN:
 
         latent_values = self.optimize_coding(real_coding, steps=steps,
                                              verbose=verbose,
-                                             init_std=init_std)
+                                             init_std=init_std,
+                                             prior_weight=prior_weight)
         generated = self.generator(latent_values, training=False).numpy()
 
         if restarts > 1:

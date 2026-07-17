@@ -200,8 +200,13 @@ class WGAN:
         return torch.nn.functional.mse_loss(outp[:, :k], inp[:, :k])
 
     def optimize_coding(self, real_coding, steps=500, verbose=False,
-                        init_std=0.1):
-        """Batched latent search matching generated points to queries."""
+                        init_std=0.1, prior_weight=0.0):
+        """Batched latent search matching generated points to queries.
+
+        ``prior_weight`` adds an L2 penalty keeping the searched latents
+        inside the N(0, 1) prior the generator was trained on (see the
+        TensorFlow implementation for details).
+        """
         self.generator.eval()
 
         latent_values = (init_std * torch.randn(
@@ -212,6 +217,8 @@ class WGAN:
         for i in range(steps):
             optimizer.zero_grad()
             loss = self.mse_loss(real_coding, self.generator(latent_values))
+            if prior_weight > 0:
+                loss = loss + prior_weight * latent_values.pow(2).mean()
             loss.backward()
             optimizer.step()
             if verbose and i % 100 == 0:
@@ -221,7 +228,7 @@ class WGAN:
         return latent_values.detach()
 
     def predict(self, input_data, scaler, steps=500, restarts=1,
-                init_std=0.1, verbose=False):
+                init_std=0.1, prior_weight=0.0, verbose=False):
         """Generate predictions for a set of query points.
 
         Same contract as :meth:`wgan_regression.wgan.WGAN.predict`:
@@ -238,7 +245,8 @@ class WGAN:
 
         latent_values = self.optimize_coding(real_coding, steps=steps,
                                              verbose=verbose,
-                                             init_std=init_std)
+                                             init_std=init_std,
+                                             prior_weight=prior_weight)
         with torch.no_grad():
             generated = self.generator(latent_values).cpu().numpy()
 

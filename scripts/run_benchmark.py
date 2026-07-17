@@ -54,8 +54,11 @@ def parse_args():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--scenarios", nargs="+", default=list(SCENARIOS),
                         choices=list(SCENARIOS))
-    parser.add_argument("--epochs", type=int, default=1000,
-                        help="WGAN training epochs (default 1000)")
+    parser.add_argument("--epochs", type=int, default=8000,
+                        help="WGAN training epochs (default 8000; a "
+                             "convergence study on the sinus dataset "
+                             "showed conditional W1 plateauing around "
+                             "8000 epochs)")
     parser.add_argument("--baseline-epochs", type=int, default=800,
                         help="MDN / diffusion training epochs (default 800)")
     parser.add_argument("--seed", type=int, default=0)
@@ -84,7 +87,8 @@ def wgan_samples(scenario, X_train, y_train, X_test, args):
         hist = []
     else:
         t0 = time.time()
-        import contextlib, io
+        import contextlib
+        import io
         with contextlib.redirect_stdout(io.StringIO()):
             hist = wgan.train(train_ds, epochs=args.epochs)
         print("  WGAN trained {} epochs in {:.0f}s".format(

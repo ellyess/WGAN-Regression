@@ -98,6 +98,20 @@ method itself is unchanged):
   time. ``init_std=1.0`` draws starts from the same prior the generator was
   trained on, which explores more of the output manifold than the historical
   ``0.1``.
+- **Optional latent prior penalty** (``predict(..., prior_weight=w)``). The
+  generator is only meaningful for latents near its N(0, 1) training prior;
+  an unconstrained search can wander outside it. A small L2 penalty on the
+  latent vectors (the standard regulariser in GAN-inversion methods) keeps
+  the search inside that region. Default 0 preserves historical behaviour;
+  on well-trained generators the sweep in this repository showed little
+  effect, so the benchmark leaves it off.
+
+One empirical note for reproduction: a convergence study on the sinus
+dataset showed the conditional Wasserstein distance of WGAN samples
+improving from about 0.7 at 1000 training epochs to about 0.22 at 8000
+epochs, where it plateaus near the quality of the generator's raw samples.
+The benchmark therefore trains for 8000 epochs per dataset; short training
+runs underrepresent what the method can do.
 
 ## 4. Baselines
 
