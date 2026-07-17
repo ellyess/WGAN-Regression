@@ -62,19 +62,50 @@ class WGAN:
     output_dir : str, optional
         Directory for model checkpoints and TensorBoard logs (created if
         missing). Defaults to ``"outputs"``.
+    training_config : str, optional
+        ``"paper"`` (default) reproduces the configuration used for the
+        MOR-GANs experiments exactly. ``"modern"`` applies three standard
+        post-hoc GAN training improvements as an explicit experimental
+        variant:
+
+        * TTUR (Heusel et al., 2017): critic learning rate 4e-4 (4x the
+          generator's) with ``n_critic`` reduced from 5 to 2, cutting the
+          per-epoch cost roughly in half;
+        * the reference WGAN-GP gradient penalty: interpolation
+          coefficient drawn per *sample* from [0, 1] instead of per
+          element from [-1, 1];
+        * an exponential moving average (decay 0.999) of the generator
+          weights, the standard variance-reduction trick for GAN
+          evaluation; see :meth:`use_ema_weights`.
     """
 
-    def __init__(self, n_features, match_cols=1, output_dir="outputs"):
+    def __init__(self, n_features, match_cols=1, output_dir="outputs",
+                 training_config="paper"):
+        if training_config not in ("paper", "modern"):
+            raise ValueError(
+                "training_config must be 'paper' or 'modern', got {!r}"
+                .format(training_config))
+
         self.n_features = n_features
         self.match_cols = match_cols
         self.output_dir = output_dir
+        self.training_config = training_config
 
         self.BATCH_SIZE = 100
         self.latent_space = 10
         # Critic updates per generator update. The Wasserstein loss is only
         # meaningful when the critic is trained close to optimality, so it
-        # takes several steps for every generator step.
-        self.n_critic = 5
+        # takes several steps for every generator step. The modern variant
+        # compensates with a faster critic learning rate (TTUR) instead.
+        if training_config == "modern":
+            self.n_critic = 2
+            discriminator_lr = 4e-4
+            self.ema_decay = 0.999
+        else:
+            self.n_critic = 5
+            discriminator_lr = 1e-4
+            self.ema_decay = None
+        self._ema_weights = None
 
         # Build the two players and a stacked model used only for saving.
         self.generator = build_generator(self.latent_space, self.n_features)
@@ -87,7 +118,7 @@ class WGAN:
         self.generator_optimizer = tf.keras.optimizers.Adam(
             learning_rate=0.0001, beta_1=0.5, beta_2=0.9)
         self.discriminator_optimizer = tf.keras.optimizers.Adam(
-            learning_rate=0.0001, beta_1=0.5, beta_2=0.9)
+            learning_rate=discriminator_lr, beta_1=0.5, beta_2=0.9)
 
         # TensorBoard writers for the loss curves.
         os.makedirs(output_dir, exist_ok=True)
@@ -157,14 +188,20 @@ class WGAN:
 
         WGAN-GP penalises deviations of the critic's gradient norm from 1
         at points interpolated between real and fake samples, replacing the
-        weight clipping of the original WGAN. Here the interpolation
-        coefficient is drawn from [-1, 1] rather than the usual [0, 1], so
-        the constraint is also enforced slightly beyond the segment joining
-        the two samples.
+        weight clipping of the original WGAN. In the paper configuration
+        the interpolation coefficient is drawn per element from [-1, 1]
+        rather than the usual per-sample [0, 1], so the constraint is also
+        enforced slightly beyond the segment joining the two samples; the
+        modern configuration uses the reference formulation.
         """
         def _interpolate(a, b):
-            alpha = tf.random.uniform(
-                shape=[self.BATCH_SIZE, self.n_features], minval=-1., maxval=1.)
+            if self.training_config == "modern":
+                alpha = tf.random.uniform(
+                    shape=[self.BATCH_SIZE, 1], minval=0., maxval=1.)
+            else:
+                alpha = tf.random.uniform(
+                    shape=[self.BATCH_SIZE, self.n_features],
+                    minval=-1., maxval=1.)
             inter = a + alpha * (b - a)
             inter.set_shape(a.shape)
             return inter
@@ -256,6 +293,8 @@ class WGAN:
                     disc_loss = self.train_D(batch)
 
                 gen_loss = self.train_G(batch)
+                if self.ema_decay is not None:
+                    self._update_ema()
 
                 self.generator_mean_loss(gen_loss)
                 self.discriminator_mean_loss(disc_loss)
@@ -284,6 +323,28 @@ class WGAN:
                     os.path.join(self.output_dir, "wgan{}.h5".format(epoch)))
 
         return hist
+
+    def _update_ema(self):
+        """Fold the current generator weights into the moving average."""
+        weights = self.generator.get_weights()
+        if self._ema_weights is None:
+            self._ema_weights = [w.copy() for w in weights]
+        else:
+            d = self.ema_decay
+            self._ema_weights = [d * e + (1 - d) * w
+                                 for e, w in zip(self._ema_weights, weights)]
+
+    def use_ema_weights(self):
+        """Load the EMA weights into the generator for evaluation.
+
+        Returns the raw (pre-swap) weights so the caller can restore them
+        with ``generator.set_weights`` before resuming training. No-op
+        returning the current weights if no EMA is being tracked.
+        """
+        raw_weights = self.generator.get_weights()
+        if self._ema_weights is not None:
+            self.generator.set_weights(self._ema_weights)
+        return raw_weights
 
     # ------------------------------------------------------------------
     # Prediction (latent-space optimisation)

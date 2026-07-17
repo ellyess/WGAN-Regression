@@ -181,7 +181,32 @@ optimisation then conditions on partial observations of a trajectory. This
 prototype was developed further in the
 [MORGAN-Framework](https://github.com/trfphillips/MORGAN-Framework).
 
-## 8. Known limitations / quirks
+## 8. Modernised training variant (experiment)
+
+Both backends accept ``training_config="modern"``, an explicit experimental
+variant applying three standard GAN training improvements that postdate or
+diverge from the paper configuration:
+
+1. **TTUR** (two time-scale update rule, Heusel et al. 2017): the critic's
+   learning rate is raised to 4e-4 (4x the generator's) and ``n_critic``
+   drops from 5 to 2. Roughly halves the cost of an epoch.
+2. **Reference gradient penalty**: the interpolation coefficient is drawn
+   per sample from [0, 1] (Gulrajani et al. 2017) instead of the paper
+   code's per-element [-1, 1].
+3. **Generator EMA**: an exponential moving average (decay 0.999) of the
+   generator weights is maintained during training and used for
+   evaluation, the standard variance-reduction trick for GAN sampling.
+
+The default ``"paper"`` configuration is untouched, so the variant is a
+benchmarked comparison rather than a silent change. Run it with:
+
+    python scripts/run_benchmark.py --training-config modern --skip-baselines
+
+which adds a "WGAN-GP (modern)" row next to the faithful "WGAN-GP" row in
+[`BENCHMARK.md`](BENCHMARK.md) (baselines are reused from the paper-config
+run) and writes ``pretrained/<scenario>_generator_modern.h5``.
+
+## 9. Known limitations / quirks
 
 Kept as-is to stay faithful to the code used for the experiments:
 

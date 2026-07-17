@@ -46,18 +46,36 @@ class WGAN:
     device : str, optional
         Torch device (default ``"cpu"``; the toy problems are small enough
         that CPU is typically fine).
+    training_config : str, optional
+        ``"paper"`` (default) or ``"modern"``; see the TensorFlow
+        implementation for the definition of the modern variant (TTUR,
+        reference gradient penalty, generator EMA).
     """
 
     def __init__(self, n_features, match_cols=1, output_dir="outputs",
-                 device="cpu"):
+                 device="cpu", training_config="paper"):
+        if training_config not in ("paper", "modern"):
+            raise ValueError(
+                "training_config must be 'paper' or 'modern', got {!r}"
+                .format(training_config))
+
         self.n_features = n_features
         self.match_cols = match_cols
         self.output_dir = output_dir
         self.device = torch.device(device)
+        self.training_config = training_config
 
         self.BATCH_SIZE = 100
         self.latent_space = 10
-        self.n_critic = 5
+        if training_config == "modern":
+            self.n_critic = 2
+            discriminator_lr = 4e-4
+            self.ema_decay = 0.999
+        else:
+            self.n_critic = 5
+            discriminator_lr = 1e-4
+            self.ema_decay = None
+        self._ema_weights = None
 
         self.generator = build_generator(
             self.latent_space, n_features).to(self.device)
@@ -66,7 +84,8 @@ class WGAN:
         self.generator_optimizer = torch.optim.Adam(
             self.generator.parameters(), lr=1e-4, betas=(0.5, 0.9))
         self.discriminator_optimizer = torch.optim.Adam(
-            self.discriminator.parameters(), lr=1e-4, betas=(0.5, 0.9))
+            self.discriminator.parameters(), lr=discriminator_lr,
+            betas=(0.5, 0.9))
 
         os.makedirs(output_dir, exist_ok=True)
 
@@ -102,11 +121,15 @@ class WGAN:
     def gradient_penalty(self, real, fake):
         """Gradient penalty on interpolates between real and fake samples.
 
-        Matches the TensorFlow implementation, including drawing the
-        interpolation coefficient from [-1, 1] rather than the
-        conventional [0, 1].
+        Matches the TensorFlow implementation: the paper configuration
+        draws the interpolation coefficient per element from [-1, 1],
+        the modern configuration per sample from the conventional [0, 1].
         """
-        alpha = torch.empty(real.shape, device=self.device).uniform_(-1., 1.)
+        if self.training_config == "modern":
+            alpha = torch.rand(len(real), 1, device=self.device)
+        else:
+            alpha = torch.empty(
+                real.shape, device=self.device).uniform_(-1., 1.)
         inter = (real + alpha * (fake - real)).requires_grad_(True)
 
         pred = self.discriminator(inter)
@@ -173,6 +196,8 @@ class WGAN:
                 for _ in range(self.n_critic):
                     d_losses.append(self._train_D(batch))
                 g_losses.append(self._train_G(len(batch)))
+                if self.ema_decay is not None:
+                    self._update_ema()
 
             hist.append([float(np.mean(g_losses)), float(np.mean(d_losses))])
 
@@ -189,6 +214,34 @@ class WGAN:
                                  "generator{}.pt".format(epoch)))
 
         return hist
+
+    def _update_ema(self):
+        """Fold the current generator weights into the moving average."""
+        state = {k: v.detach().clone()
+                 for k, v in self.generator.state_dict().items()}
+        if self._ema_weights is None:
+            self._ema_weights = state
+        else:
+            d = self.ema_decay
+            for k, v in state.items():
+                if v.dtype.is_floating_point:
+                    self._ema_weights[k].mul_(d).add_(v, alpha=1 - d)
+                else:
+                    # Integer buffers (e.g. batch-norm step counters) are
+                    # copied, not averaged.
+                    self._ema_weights[k] = v
+
+    def use_ema_weights(self):
+        """Load the EMA weights into the generator for evaluation.
+
+        Returns the raw (pre-swap) state_dict so the caller can restore it
+        with ``generator.load_state_dict`` before resuming training.
+        """
+        raw_state = {k: v.detach().clone()
+                     for k, v in self.generator.state_dict().items()}
+        if self._ema_weights is not None:
+            self.generator.load_state_dict(self._ema_weights)
+        return raw_state
 
     # ------------------------------------------------------------------
     # Prediction (latent-space optimisation)

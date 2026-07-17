@@ -64,13 +64,23 @@ def parse_args():
                              "checks (default 500)")
     parser.add_argument("--patience", type=int, default=4,
                         help="stop after this many chunks without "
-                             "improvement on the validation MMD (default 4)")
+                             "improvement on the validation metric (default 4)")
     parser.add_argument("--baseline-epochs", type=int, default=800,
                         help="MDN / diffusion training epochs (default 800)")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--use-pretrained", action="store_true",
                         help="load generator weights from pretrained/ "
                              "instead of training the WGAN")
+    parser.add_argument("--training-config", default="paper",
+                        choices=["paper", "modern"],
+                        help="'paper' reproduces the publication settings; "
+                             "'modern' applies TTUR, the reference "
+                             "gradient penalty and generator EMA as an "
+                             "explicit experimental variant")
+    parser.add_argument("--skip-baselines", action="store_true",
+                        help="only run the WGAN (useful when adding a "
+                             "second training configuration to results "
+                             "that already contain the baselines)")
     return parser.parse_args()
 
 
@@ -102,10 +112,18 @@ def train_with_selection(wgan, train_ds, scaler, X_valid, y_valid, args):
     trained = 0
     t0 = time.time()
 
+    use_ema = wgan.ema_decay is not None
+
     while trained < args.epochs:
         with contextlib.redirect_stdout(io.StringIO()):
             wgan.train(train_ds, epochs=args.chunk)
         trained += args.chunk
+
+        # With EMA active, both evaluation and the kept candidate use the
+        # averaged weights (the deployed model); raw weights are restored
+        # afterwards so training resumes unaffected.
+        if use_ema:
+            raw_weights = wgan.use_ema_weights()
 
         z = tf.random.normal([len(valid_scaled), wgan.latent_space])
         raw = wgan.generator(z, training=False).numpy()
@@ -119,6 +137,9 @@ def train_with_selection(wgan, train_ds, scaler, X_valid, y_valid, args):
             since_best = 0
         else:
             since_best += 1
+
+        if use_ema:
+            wgan.generator.set_weights(raw_weights)
 
         if since_best >= args.patience:
             break
@@ -137,11 +158,14 @@ def wgan_samples(scenario, X_train, y_train, X_test, X_valid, y_valid, args):
 
     n_inputs = N_INPUTS.get(scenario, 1)
     n_features = n_inputs + 1
-    weights = REPO / "pretrained" / "{}_generator.h5".format(scenario)
+    suffix = "" if args.training_config == "paper" else "_modern"
+    weights = REPO / "pretrained" / "{}_generator{}.h5".format(
+        scenario, suffix)
     weights.parent.mkdir(exist_ok=True)
 
     wgan = WGAN(n_features, match_cols=n_inputs,
-                output_dir=str(REPO / "outputs" / scenario))
+                output_dir=str(REPO / "outputs" / scenario),
+                training_config=args.training_config)
     train_ds, scaler, _ = wgan.preproc(X_train, y_train)
 
     if args.use_pretrained and weights.exists():
@@ -245,15 +269,22 @@ def main():
 
         X_wgan, y_wgan = wgan_samples(
             scenario, X_train, y_train, X_test, X_valid, y_valid, args)
-        y_gpr = gpr_samples(X_train, y_train, X_test, n_inputs + 1)
-        y_mdn = mdn_samples(X_train, y_train, X_test, n_inputs,
-                            args.baseline_epochs, args.seed)
-        y_diff = diffusion_samples(X_train, y_train, X_test, n_inputs,
-                                   args.baseline_epochs, args.seed)
+        if args.skip_baselines:
+            y_gpr = y_mdn = y_diff = None
+        else:
+            y_gpr = gpr_samples(X_train, y_train, X_test, n_inputs + 1)
+            y_mdn = mdn_samples(X_train, y_train, X_test, n_inputs,
+                                args.baseline_epochs, args.seed)
+            y_diff = diffusion_samples(X_train, y_train, X_test, n_inputs,
+                                       args.baseline_epochs, args.seed)
 
+        wgan_label = ("WGAN-GP" if args.training_config == "paper"
+                      else "WGAN-GP (modern)")
+        wgan_color = ("tab:green" if args.training_config == "paper"
+                      else "tab:red")
         scenario_scores = {}
         model_outputs = [
-            ("WGAN-GP", X_wgan, y_wgan, "tab:green"),
+            (wgan_label, X_wgan, y_wgan, wgan_color),
             ("GPR", X_test, y_gpr, "tab:orange"),
             ("MDN", X_test, y_mdn, "tab:blue"),
             ("Diffusion", X_test, y_diff, "tab:purple"),
@@ -265,12 +296,20 @@ def main():
             print("  {:<10s} W1={conditional_w1:.3f}  MMD={joint_mmd:.4f}  "
                   "NLL={kde_nll:.2f}".format(name, **scenario_scores[name]))
 
+        fig_suffix = "" if args.training_config == "paper" else "_modern"
         plot_scenario(scenario, X_test, y_test, model_outputs,
-                      fig_dir / "{}.png".format(scenario))
+                      fig_dir / "{}{}.png".format(scenario, fig_suffix))
         # One file per scenario so parallel workers never clobber each
-        # other; the merge below combines whatever has been produced.
-        with open(out_dir / "results_{}.json".format(scenario), "w") as f:
-            json.dump(scenario_scores, f, indent=2)
+        # other; scores merge into any existing entry so a second training
+        # configuration adds rows instead of replacing the first run.
+        part = out_dir / "results_{}.json".format(scenario)
+        merged = {}
+        if part.exists():
+            with open(part) as f:
+                merged = json.load(f)
+        merged.update(scenario_scores)
+        with open(part, "w") as f:
+            json.dump(merged, f, indent=2)
 
     # Merge every per-scenario result present (from this and any other
     # worker) into the combined json and the Markdown table.
