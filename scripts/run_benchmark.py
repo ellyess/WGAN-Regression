@@ -55,10 +55,16 @@ def parse_args():
     parser.add_argument("--scenarios", nargs="+", default=list(SCENARIOS),
                         choices=list(SCENARIOS))
     parser.add_argument("--epochs", type=int, default=8000,
-                        help="WGAN training epochs (default 8000; a "
-                             "convergence study on the sinus dataset "
+                        help="maximum WGAN training epochs (default 8000; "
+                             "a convergence study on the sinus dataset "
                              "showed conditional W1 plateauing around "
                              "8000 epochs)")
+    parser.add_argument("--chunk", type=int, default=500,
+                        help="epochs per training chunk between validation "
+                             "checks (default 500)")
+    parser.add_argument("--patience", type=int, default=4,
+                        help="stop after this many chunks without "
+                             "improvement on the validation MMD (default 4)")
     parser.add_argument("--baseline-epochs", type=int, default=800,
                         help="MDN / diffusion training epochs (default 800)")
     parser.add_argument("--seed", type=int, default=0)
@@ -68,7 +74,55 @@ def parse_args():
     return parser.parse_args()
 
 
-def wgan_samples(scenario, X_train, y_train, X_test, args):
+def train_with_selection(wgan, train_ds, scaler, X_valid, y_valid, args):
+    """Train in chunks, keeping the checkpoint that best matches validation.
+
+    GAN sample quality oscillates over training, so taking the final
+    weights is a lottery. Instead, after every ``args.chunk`` epochs the
+    generator's *raw* samples are scored against the validation split
+    (MMD in scaled space); the best-scoring weights are kept and training
+    stops early once ``args.patience`` chunks pass without improvement.
+    The test split plays no part in selection, so there is no leakage.
+    """
+    import contextlib
+    import io
+
+    import tensorflow as tf
+
+    valid_scaled = scaler.transform(
+        np.concatenate([X_valid, y_valid], axis=1)) * 2 - 1
+
+    best_mmd, best_weights, best_epoch = np.inf, None, 0
+    since_best = 0
+    trained = 0
+    t0 = time.time()
+
+    while trained < args.epochs:
+        with contextlib.redirect_stdout(io.StringIO()):
+            wgan.train(train_ds, epochs=args.chunk)
+        trained += args.chunk
+
+        z = tf.random.normal([len(valid_scaled), wgan.latent_space])
+        raw = wgan.generator(z, training=False).numpy()
+        mmd = metrics.mmd_rbf(valid_scaled[:500], raw[:500])
+
+        if mmd < best_mmd:
+            best_mmd, best_epoch = mmd, trained
+            best_weights = wgan.generator.get_weights()
+            since_best = 0
+        else:
+            since_best += 1
+
+        if since_best >= args.patience:
+            break
+
+    wgan.generator.set_weights(best_weights)
+    print("  WGAN trained {} epochs in {:.0f}s; kept epoch {} "
+          "(validation MMD {:.5f})".format(
+              trained, time.time() - t0, best_epoch, best_mmd))
+
+
+def wgan_samples(scenario, X_train, y_train, X_test, X_valid, y_valid, args):
     """Train (or load) the WGAN and sample y at the test inputs."""
     import tensorflow as tf
     tf.random.set_seed(args.seed)
@@ -84,15 +138,8 @@ def wgan_samples(scenario, X_train, y_train, X_test, args):
 
     if args.use_pretrained and weights.exists():
         wgan.generator.load_weights(str(weights))
-        hist = []
     else:
-        t0 = time.time()
-        import contextlib
-        import io
-        with contextlib.redirect_stdout(io.StringIO()):
-            hist = wgan.train(train_ds, epochs=args.epochs)
-        print("  WGAN trained {} epochs in {:.0f}s".format(
-            args.epochs, time.time() - t0))
+        train_with_selection(wgan, train_ds, scaler, X_valid, y_valid, args)
         wgan.generator.save_weights(str(weights))
 
     # Queries: test inputs with placeholder y (ignored by the match loss).
@@ -101,7 +148,7 @@ def wgan_samples(scenario, X_train, y_train, X_test, args):
     q_scaled = scaler.transform(queries) * 2 - 1
     generated = wgan.predict(q_scaled, scaler, restarts=5, init_std=1.0)
 
-    return generated[:, :n_inputs], generated[:, -1:], hist
+    return generated[:, :n_inputs], generated[:, -1:]
 
 
 def gpr_samples(X_train, y_train, X_test, n_features):
@@ -180,17 +227,16 @@ def main():
     fig_dir.mkdir(parents=True, exist_ok=True)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    results = {}
     for scenario in args.scenarios:
         print("=== {} ===".format(scenario))
         np.random.seed(args.seed)
         n_instance = SCENARIOS[scenario]
         n_inputs = N_INPUTS.get(scenario, 1)
-        X_train, y_train, X_test, y_test, *_ = datasets.get_dataset(
-            n_instance, scenario, seed=args.seed)
+        X_train, y_train, X_test, y_test, X_valid, y_valid = \
+            datasets.get_dataset(n_instance, scenario, seed=args.seed)
 
-        X_wgan, y_wgan, _ = wgan_samples(
-            scenario, X_train, y_train, X_test, args)
+        X_wgan, y_wgan = wgan_samples(
+            scenario, X_train, y_train, X_test, X_valid, y_valid, args)
         y_gpr = gpr_samples(X_train, y_train, X_test, n_inputs + 1)
         y_mdn = mdn_samples(X_train, y_train, X_test, n_inputs,
                             args.baseline_epochs, args.seed)
@@ -213,13 +259,26 @@ def main():
 
         plot_scenario(scenario, X_test, y_test, model_outputs,
                       fig_dir / "{}.png".format(scenario))
-        results[scenario] = scenario_scores
+        # One file per scenario so parallel workers never clobber each
+        # other; the merge below combines whatever has been produced.
+        with open(out_dir / "results_{}.json".format(scenario), "w") as f:
+            json.dump(scenario_scores, f, indent=2)
+
+    # Merge every per-scenario result present (from this and any other
+    # worker) into the combined json and the Markdown table.
+    results = {}
+    for scenario in SCENARIOS:
+        part = out_dir / "results_{}.json".format(scenario)
+        if part.exists():
+            with open(part) as f:
+                results[scenario] = json.load(f)
 
     with open(out_dir / "results.json", "w") as f:
         json.dump(results, f, indent=2)
 
     write_markdown(results, out_dir / "../BENCHMARK.md")
-    print("Wrote {} and docs/BENCHMARK.md".format(out_dir / "results.json"))
+    print("Wrote {} scenarios to {} and docs/BENCHMARK.md".format(
+        len(results), out_dir / "results.json"))
 
 
 def write_markdown(results, path):
