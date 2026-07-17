@@ -1,9 +1,17 @@
-numpy
-sklearn
-tensorflow
-jupyter
-matplotlib
-keras
+# Core
+numpy<2
 pandas
-GPy
+scikit-learn
+# TF < 2.16 keeps Keras 2, which this code was written against.
+tensorflow>=2.4,<2.16
+
+# Plotting / notebooks
+matplotlib
 seaborn
+jupyter
+
+# Excel datasets in data/
+openpyxl
+
+# Optional: only needed for the Gaussian Process Regression baseline
+GPy
