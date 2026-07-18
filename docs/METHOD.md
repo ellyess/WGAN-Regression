@@ -173,13 +173,29 @@ PyTorch side.
 
 ## 7. Multi-output extension
 
-`notebooks/Multi_Output_WGAN_Spiral.ipynb` is a standalone prototype of the
-idea that gave the paper its name: instead of one (x, y) point, each training
-sample is an **entire trajectory** (a 3-D spiral sampled along its length),
-and the GAN generates whole trajectories at once. The same latent-space
-optimisation then conditions on partial observations of a trajectory. This
-prototype was developed further in the
-[MORGAN-Framework](https://github.com/trfphillips/MORGAN-Framework).
+The idea that gave the paper its name: instead of one (x, y) point, each
+training sample is an **entire trajectory** (a 3-D spiral sampled along
+its length), and the GAN generates whole trajectories at once. The same
+latent-space optimisation then **completes** a trajectory from a partial
+observation: search for latents whose generated trajectory matches the
+observed prefix, and read off the remaining steps.
+
+Originally prototyped in `notebooks/Multi_Output_WGAN_Spiral.ipynb` and
+developed further in the
+[MORGAN-Framework](https://github.com/trfphillips/MORGAN-Framework), this
+now lives in the package as `wgan_regression/trajectory.py`
+(convolutional trajectory WGAN-GP) with a diffusion baseline in
+`wgan_regression/pytorch/trajectory_diffusion.py` (unconditional DDPM over
+flattened trajectories, completing by RePaint-style inpainting). Run the
+comparison with `python scripts/run_trajectory.py`.
+
+Outcome: this is the setting where the WGAN approach genuinely shines.
+On random 3-D spirals it beats the diffusion baseline on both generation
+quality (trajectory-set MMD 0.016 vs 0.036) and completion accuracy from
+8 observed steps (RMSE on the unobserved steps 0.016 vs 0.087), and the
+completion figure shows its continuations lying almost exactly on the
+ground truth. Structured, correlated outputs are exactly what the
+latent-search formulation handles well.
 
 ## 8. Modernised training variant (experiment)
 

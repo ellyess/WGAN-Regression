@@ -1,0 +1,10 @@
+{
+  "WGAN-GP": {
+    "generation_mmd": 0.016151529528176778,
+    "completion_rmse": 0.01554090932480052
+  },
+  "Diffusion": {
+    "generation_mmd": 0.035463768293763076,
+    "completion_rmse": 0.0869439617262689
+  }
+}

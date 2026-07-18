@@ -58,6 +58,16 @@ Findings, honestly stated:
 - The 2022-era baselines are strong: the MDN and conditional diffusion match or beat the WGAN on most synthetic sets, though the MDN fails badly on the real `eye` data (W1 176 vs the WGAN's 32 and diffusion's 16).
 - A **modernised training variant** (`training_config="modern"`: TTUR, reference gradient penalty, generator EMA; see [`docs/METHOD.md`](docs/METHOD.md)) trains roughly twice as fast per epoch but is not a uniform quality win: better on `heter`, `eye` and `multi`, worse on `circle`, `sinus` and `3d`. The faithful paper configuration holds up. Both configurations ship as pretrained weights and appear as separate rows in the results table.
 
+## Multi-output regression: whole trajectories
+
+The paper's headline idea (the "MOR" in MOR-GANs) is generating **entire trajectories** as single samples. `wgan_regression/trajectory.py` trains a convolutional WGAN-GP on random 3-D spirals and completes unseen spirals from their first 8 observed steps via the same latent-space search; a diffusion model with inpainting (`wgan_regression/pytorch/trajectory_diffusion.py`) is the modern baseline. Run it with `python scripts/run_trajectory.py`.
+
+![Trajectory generation comparison](docs/figures/trajectory/generation.png)
+
+![Trajectory completion comparison](docs/figures/trajectory/completion.png)
+
+This is where the method genuinely wins: the WGAN beats diffusion on both generation quality (trajectory-set MMD **0.016** vs 0.036) and completion accuracy (RMSE on unobserved steps **0.016** vs 0.087), and its completions lie almost exactly on the true continuations. Structured, correlated outputs are what the latent-search formulation handles best, which is precisely the direction the published paper took.
+
 ## Repository structure
 
 ```
