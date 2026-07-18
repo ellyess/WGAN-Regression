@@ -39,24 +39,25 @@ Since publication the repository has been extended with a PyTorch port, MDN and 
 
 ## Benchmark
 
-`scripts/run_benchmark.py` trains every model on all eight datasets, selects WGAN checkpoints by validation conditional-W1 (with early stopping), and scores everything with the metrics in `wgan_regression/metrics.py`. Full table and numbers: [`docs/BENCHMARK.md`](docs/BENCHMARK.md). The baselines are chosen to make the comparison honest: **GPR** is the classical probabilistic regressor the paper compared against, the **Mixture Density Network** is the classic neural answer to multi-modal regression, and **conditional diffusion** is the post-2022 state of the art in generative modelling.
+`scripts/run_benchmark.py` trains every model on all twelve datasets (eight paper-era benchmarks plus four standard UCI regression sets) across **five random seeds**, selects WGAN checkpoints by validation score with early stopping, and reports every metric as mean ± standard deviation over seeds. Full table: [`docs/BENCHMARK.md`](docs/BENCHMARK.md). The baselines are chosen to make the comparison honest: **GPR** is the classical probabilistic regressor the paper compared against, the **Mixture Density Network** is the classic neural answer to multi-modal regression, and **conditional diffusion** is the post-2022 state of the art in generative modelling.
 
 ![Benchmark comparison on the circle dataset](docs/figures/benchmark/circle.png)
 
-*The headline case: on the multi-valued `circle` dataset the GPR collapses into a filled blob (a Gaussian conditional cannot represent two y branches, so posterior samples fill the hole) while the WGAN reproduces the annulus and posts the best conditional W1 of all four models (0.15 vs 0.21 to 0.26).*
+*The headline case: on the multi-valued `circle` dataset the GPR collapses into a filled blob (a Gaussian conditional cannot represent two y branches, so posterior samples fill the hole) while the WGAN reproduces the annulus, clearly beating GPR across seeds (W1 0.20 ± 0.06 vs 0.27 ± 0.05) and statistically tying the modern neural samplers.*
 
 ![Benchmark comparison on the heteroscedastic dataset](docs/figures/benchmark/heter.png)
 
 *On `heter`, the WGAN tracks the vanishing noise at small x while GPR's constant-noise assumption over-scatters that region.*
 
-![Benchmark comparison on the moons dataset](docs/figures/benchmark/moons.png)
+![Conditional W1 spread across five seeds](docs/figures/benchmark/seed_variance.png)
 
-Findings, honestly stated:
+Findings across 5 seeds, honestly stated:
 
-- The WGAN's advantage shows exactly where the paper claimed: multi-valued responses (`circle`, best of all models) and input-dependent noise (`heter`, competitive), where Gaussian assumptions break.
-- On simple uni-modal data (`sinus`, `3d`) the WGAN has no advantage and the classical/lighter models win on the numbers.
-- The 2022-era baselines are strong: the MDN and conditional diffusion match or beat the WGAN on most synthetic sets, though the MDN fails badly on the real `eye` data (W1 176 vs the WGAN's 32 and diffusion's 16).
-- A **modernised training variant** (`training_config="modern"`: TTUR, reference gradient penalty, generator EMA; see [`docs/METHOD.md`](docs/METHOD.md)) trains roughly twice as fast per epoch but is not a uniform quality win: better on `heter`, `eye` and `multi`, worse on `circle`, `sinus` and `3d`. The faithful paper configuration holds up. Both configurations ship as pretrained weights and appear as separate rows in the results table.
+- The paper's core claim survives multi-seed scrutiny against its contemporary baseline: where Gaussian assumptions break (`circle`, `heter`), the WGAN beats or matches GPR; on simple uni-modal data (`sinus`, `3d`, most UCI sets) it has no advantage.
+- The post-publication neural samplers are strong: MDN and conditional diffusion match or beat the WGAN on most single-point scenarios. The exception is real data: the MDN fails catastrophically on `eye` in every seed (W1 267 ± 52 vs the WGAN's 27 ± 4), a robustness failure the sample-based models do not share.
+- **Seed variance is itself a finding**: the box plots show the WGAN has the widest spread of all models on most datasets. Adversarial training is the least stable member of the comparison, which is why this table reports distributions rather than single runs.
+- On the many-input UCI tabular sets, diffusion and GPR lead and the WGAN trails; its strength is low-dimensional structure and, decisively, the multi-output trajectory setting below.
+- A **modernised training variant** (`training_config="modern"`: TTUR, reference gradient penalty, generator EMA; see [`docs/METHOD.md`](docs/METHOD.md)) trains roughly twice as fast per epoch but is not a uniform quality win (single-seed rows in the table). The faithful paper configuration holds up. Both configurations ship as pretrained weights.
 
 ## Multi-output regression: whole trajectories
 
@@ -160,6 +161,12 @@ Prediction originally optimised each query point's latent vector in its own Pyth
 | `eye` | 1 | Real measurement data (`data/eyedata.csv`) |
 | `3d` | 2 | Two-input surface (cone) |
 | `helix` | 2 | 3-D curve, not a function of its inputs |
+| `concrete` | 8 | UCI: concrete compressive strength |
+| `energy` | 8 | UCI: building heating load |
+| `wine` | 11 | UCI: red wine quality |
+| `yacht` | 6 | UCI: yacht residuary resistance |
+
+The four UCI sets (files in `data/uci/`, from the [UCI Machine Learning Repository](https://archive.ics.uci.edu), CC BY 4.0) connect the benchmark to the wider uncertainty-quantification literature; they are split 70/15/15 per seed.
 
 ## Citation
 
