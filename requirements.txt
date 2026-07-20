@@ -1,9 +1,27 @@
-numpy
-sklearn
-tensorflow
-jupyter
-matplotlib
-keras
+# Core
+numpy<2
 pandas
-GPy
+scikit-learn
+scipy
+# TF < 2.16 keeps Keras 2, which this code was written against.
+tensorflow>=2.4,<2.16
+
+# PyTorch backend and the conditional diffusion baseline. CPU is enough
+# for every experiment in this repository; for a smaller install use
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+torch
+
+# Plotting / notebooks
+matplotlib
 seaborn
+jupyter
+
+# Excel datasets in data/
+openpyxl
+
+# Optional: only needed for the Gaussian Process Regression baseline
+GPy
+
+# Development
+pytest
+ruff

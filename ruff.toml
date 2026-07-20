@@ -1,0 +1,10 @@
+line-length = 100
+target-version = "py39"
+
+[lint]
+select = ["E", "F", "W"]
+# E402: scripts append the repo root to sys.path before importing from it.
+ignore = ["E402"]
+
+# Legacy exploratory notebooks keep their historical style.
+exclude = ["*.ipynb"]
